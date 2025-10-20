@@ -1,0 +1,75 @@
+#
+# Cognitive Agentics - LLM Inference Service
+# NVIDIA NIM-based deployment for .NET applications (ARM64/Blackwell)
+#
+# Models stored in: /home/kfrost/assets/models
+# External access: http://192.168.2.180:8000 (LLM) and :8001 (Embeddings)
+#
+
+services:
+  # Main LLM - GPT-OSS-120B for reasoning and financial analysis
+  llm-supervisor:
+    image: nvcr.io/nim/openai/gpt-oss-120b:latest
+    container_name: cognitive-llm-supervisor
+    shm_size: '16GB'
+    stdin_open: true
+    tty: true
+    ports:
+      - "8000:8000"
+    volumes:
+      - /home/kfrost/assets/models:/opt/nim/.cache
+    user: "${UID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NGC_API_KEY=${NGC_API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    restart: unless-stopped
+    networks:
+      - cognitive-net
+
+  # Embedding Service - BGE-M3 for document embeddings (1024 dims, 8192 context)
+  embedding-service:
+    image: nvcr.io/nim/baai/bge-m3:latest
+    container_name: cognitive-embeddings
+    shm_size: '16GB'
+    stdin_open: true
+    tty: true
+    ports:
+      - "8001:8000"
+    volumes:
+      - /home/kfrost/assets/models:/opt/nim/.cache
+    user: "${UID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NGC_API_KEY=${NGC_API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - cognitive-net
+
+networks:
+  cognitive-net:
+    name: cognitive-agentics-net
+    driver: bridge
