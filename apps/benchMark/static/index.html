@@ -1220,6 +1220,7 @@
 
             const promptTokens = benchmark.prompt_tokens ?? 0;
             const completionTokens = benchmark.completion_tokens ?? 0;
+            const totalTokens = benchmark.total_tokens ?? (promptTokens + completionTokens);
             const totalTime = benchmark.total_time ?? 0;
 
             const prefillDuration = benchmark.prefill_duration ?? null;
@@ -1238,43 +1239,51 @@
 
             return `
                 <div class="benchmark-info">
-                    <strong>📊 Performance Metrics:</strong>
+                    <strong>📊 Performance Metrics</strong>
+                    
+                    <div style="margin: 12px 0 8px 0; padding: 8px 12px; background: rgba(255,255,255,0.5); border-radius: 6px; font-weight: 600;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span>Total: ${totalTokens.toLocaleString()} tokens in ${formatNum(totalTime, 2)}s</span>
+                            <span style="color: #667eea;">${formatNum(throughput, 2)} tok/s</span>
+                        </div>
+                    </div>
+                    
                     <div class="benchmark-stats">
-                        <div class="stat">
-                            <span class="stat-label">Prompt Tokens</span>
+                        <div class="stat" style="grid-column: span 2;">
+                            <span class="stat-label">📥 Input (Prompt) Tokens</span>
                             <span class="stat-value">${promptTokens.toLocaleString()}</span>
                         </div>
-                        <div class="stat">
-                            <span class="stat-label">Generated Tokens</span>
+                        <div class="stat" style="grid-column: span 2;">
+                            <span class="stat-label">📤 Output (Response) Tokens</span>
                             <span class="stat-value">${completionTokens.toLocaleString()}</span>
                         </div>
                         <div class="stat">
-                            <span class="stat-label">Total Time (s)</span>
-                            <span class="stat-value">${formatNum(totalTime, 2)}</span>
+                            <span class="stat-label">⏱️ Time To First Token</span>
+                            <span class="stat-value">${ttft !== null ? formatNum(ttft, 3) : '—'}s</span>
                         </div>
                         <div class="stat">
-                            <span class="stat-label">Time To First Token (s)</span>
-                            <span class="stat-value">${ttft !== null ? formatNum(ttft, 3) : '—'}</span>
+                            <span class="stat-label">⚡ Prefill Duration</span>
+                            <span class="stat-value">${prefillDuration !== null ? formatNum(prefillDuration, 3) : '—'}s</span>
                         </div>
                         <div class="stat">
-                            <span class="stat-label">Prompt tok/s</span>
-                            <span class="stat-value">${formatNum(promptSpeed, 2)}</span>
+                            <span class="stat-label">✍️ Generation Duration</span>
+                            <span class="stat-value">${generationDuration !== null ? formatNum(generationDuration, 3) : '—'}s</span>
                         </div>
                         <div class="stat">
-                            <span class="stat-label">Generation tok/s</span>
-                            <span class="stat-value">${formatNum(generationSpeed, 2)}</span>
+                            <span class="stat-label">🔄 Total Time</span>
+                            <span class="stat-value">${formatNum(totalTime, 2)}s</span>
                         </div>
                         <div class="stat">
-                            <span class="stat-label">Throughput tok/s</span>
-                            <span class="stat-value">${formatNum(throughput, 2)}</span>
+                            <span class="stat-label">🚀 Prompt Speed</span>
+                            <span class="stat-value">${formatNum(promptSpeed, 2)} tok/s</span>
                         </div>
                         <div class="stat">
-                            <span class="stat-label">Prefill Duration (s)</span>
-                            <span class="stat-value">${prefillDuration !== null ? formatNum(prefillDuration, 3) : '—'}</span>
+                            <span class="stat-label">⚡ Generation Speed</span>
+                            <span class="stat-value">${formatNum(generationSpeed, 2)} tok/s</span>
                         </div>
-                        <div class="stat">
-                            <span class="stat-label">Generation Duration (s)</span>
-                            <span class="stat-value">${generationDuration !== null ? formatNum(generationDuration, 3) : '—'}</span>
+                        <div class="stat" style="grid-column: span 2;">
+                            <span class="stat-label">📊 Overall Throughput</span>
+                            <span class="stat-value" style="color: #667eea; font-size: 1.2em;">${formatNum(throughput, 2)} tok/s</span>
                         </div>
                     </div>
                 </div>

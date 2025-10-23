@@ -472,6 +472,7 @@ async def chat_stream(request: ChatRequest):
         response_text: str = ""
         reasoning_text: str = ""
         usage_payload: Dict[str, Any] = {}
+        timings_payload: Dict[str, Any] = {}
         content_token_count: int = 0
         reasoning_token_count: int = 0
 
@@ -497,8 +498,13 @@ async def chat_stream(request: ChatRequest):
                         except json.JSONDecodeError:
                             continue
 
+                        # Capture usage data if provided
                         if chunk.get("usage"):
                             usage_payload = chunk["usage"]
+                        
+                        # Capture llama.cpp timings data if provided (GPT-OSS-120B)
+                        if chunk.get("timings"):
+                            timings_payload = chunk["timings"]
 
                         choices = chunk.get("choices", [])
                         for choice in choices:
@@ -530,25 +536,43 @@ async def chat_stream(request: ChatRequest):
         if first_token_time is None:
             first_token_time = end_time
 
-        # Get token counts from usage or fallback to our count
-        prompt_tokens = usage_payload.get("prompt_tokens", 0)
-        completion_tokens = usage_payload.get("completion_tokens", 0)
-        
-        # If model didn't provide usage, use our token counts
-        if completion_tokens == 0 and (content_token_count > 0 or reasoning_token_count > 0):
-            completion_tokens = content_token_count + reasoning_token_count
-        
-        total_tokens = usage_payload.get("total_tokens", prompt_tokens + completion_tokens)
-        if total_tokens == 0:
+        # Use llama.cpp timings if available (GPT-OSS-120B provides this)
+        if timings_payload:
+            prompt_tokens = timings_payload.get("prompt_n", 0)
+            completion_tokens = timings_payload.get("predicted_n", 0)
             total_tokens = prompt_tokens + completion_tokens
+            
+            # Use actual speeds from the model
+            prompt_speed = timings_payload.get("prompt_per_second", 0.0)
+            generation_speed = timings_payload.get("predicted_per_second", 0.0)
+            
+            # Use actual timings from the model (convert ms to seconds)
+            prefill_duration = timings_payload.get("prompt_ms", 0.0) / 1000.0
+            generation_duration = timings_payload.get("predicted_ms", 0.0) / 1000.0
+            total_duration = prefill_duration + generation_duration
+            
+            throughput = total_tokens / total_duration if total_duration > 0 else 0.0
+            
+        else:
+            # Fallback to usage payload or calculated values
+            prompt_tokens = usage_payload.get("prompt_tokens", 0)
+            completion_tokens = usage_payload.get("completion_tokens", 0)
+            
+            # If model didn't provide usage, use our token counts (less accurate)
+            if completion_tokens == 0 and (content_token_count > 0 or reasoning_token_count > 0):
+                completion_tokens = content_token_count + reasoning_token_count
+            
+            total_tokens = usage_payload.get("total_tokens", prompt_tokens + completion_tokens)
+            if total_tokens == 0:
+                total_tokens = prompt_tokens + completion_tokens
 
-        prefill_duration = max(first_token_time - start_time, 0.0)
-        generation_duration = max(end_time - first_token_time, 0.0)
-        total_duration = max(end_time - start_time, 0.0)
+            prefill_duration = max(first_token_time - start_time, 0.0)
+            generation_duration = max(end_time - first_token_time, 0.0)
+            total_duration = max(end_time - start_time, 0.0)
 
-        prompt_speed = prompt_tokens / prefill_duration if prefill_duration > 0 else 0.0
-        generation_speed = completion_tokens / generation_duration if generation_duration > 0 else 0.0
-        throughput = total_tokens / total_duration if total_duration > 0 else 0.0
+            prompt_speed = prompt_tokens / prefill_duration if prefill_duration > 0 else 0.0
+            generation_speed = completion_tokens / generation_duration if generation_duration > 0 else 0.0
+            throughput = total_tokens / total_duration if total_duration > 0 else 0.0
 
         benchmark_result = BenchmarkResult(
             model_id=request.model_id,
