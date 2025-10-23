@@ -132,38 +132,6 @@
             color: white;
         }
 
-        .model-selector {
-            margin-bottom: 30px;
-        }
-
-        .model-selector label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: #495057;
-        }
-
-        .model-select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            font-size: 1em;
-            background: white;
-            cursor: pointer;
-            transition: border-color 0.3s;
-        }
-
-        .model-select:hover {
-            border-color: #667eea;
-        }
-
-        .model-select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
         .model-info {
             background: white;
             padding: 20px;
@@ -259,6 +227,10 @@
             word-wrap: break-word;
         }
 
+        .streaming-metrics {
+            margin-top: 12px;
+        }
+
         .message-content p + p {
             margin-top: 10px;
         }
@@ -309,6 +281,90 @@
             margin-right: 50px;
         }
 
+        .message.assistant.streaming .message-content {
+            border: 1px dashed rgba(102, 126, 234, 0.4);
+            background: #f6f7ff;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .streaming-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+            color: #6c757d;
+            margin-bottom: 8px;
+        }
+
+        .streaming-indicator .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 0.2;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .reasoning-block {
+            margin-bottom: 12px;
+            margin-right: 50px;
+            padding: 12px 16px;
+            background: #fff7e6;
+            border-left: 4px solid #f0ad4e;
+            border-radius: 10px;
+            color: #5a3e00;
+            font-size: 0.92em;
+        }
+
+        .reasoning-title {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .reasoning-title:hover {
+            color: #f0ad4e;
+        }
+
+        .reasoning-toggle {
+            font-size: 0.8em;
+            transition: transform 0.2s;
+        }
+
+        .reasoning-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .reasoning-text {
+            margin-top: 6px;
+            white-space: pre-wrap;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: #fff1d6;
+            padding: 8px 10px;
+            border-radius: 8px;
+            line-height: 1.5;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+
+        .reasoning-text.collapsed {
+            display: none;
+        }
+
         .benchmark-info {
             margin-top: 10px;
             padding: 12px;
@@ -316,6 +372,14 @@
             border-radius: 8px;
             font-size: 0.9em;
             border-left: 4px solid #ffc107;
+        }
+
+        .benchmark-info.hidden {
+            display: none;
+        }
+
+        .streaming-text {
+            min-height: 20px;
         }
 
         .benchmark-stats {
@@ -394,6 +458,203 @@
         .send-button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+
+        .input-footer {
+            margin-top: 12px;
+        }
+
+        .model-footer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #dee2e6;
+            flex-wrap: wrap;
+        }
+
+        .footer-label {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .model-chips {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .model-chip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            background: white;
+            color: #495057;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s, border 0.2s;
+        }
+
+        .model-chip:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.25);
+        }
+
+        .model-chip:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .model-chip.active {
+            border: 2px solid #667eea;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .model-chip.offline {
+            border-style: dashed;
+            opacity: 0.7;
+        }
+
+        .chip-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 0.85em;
+            font-weight: 700;
+            position: relative;
+        }
+
+        .chip-icon.offline {
+            background: #adb5bd;
+        }
+
+        .chip-status {
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 2px solid white;
+            background: #28a745;
+        }
+
+        .chip-status.offline {
+            background: #dc3545;
+        }
+
+        .chip-label {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .model-empty {
+            font-size: 0.9em;
+            color: #6c757d;
+        }
+
+        body.modal-open {
+            overflow: hidden;
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .modal.visible {
+            display: flex;
+        }
+
+        .modal-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(17, 24, 39, 0.45);
+        }
+
+        .modal-content {
+            position: relative;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 25px 60px rgba(15, 23, 42, 0.35);
+            padding: 30px;
+            max-width: 640px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 1;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: #212529;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #6c757d;
+        }
+
+        .modal-close:hover {
+            color: #212529;
+        }
+
+        .modal-section {
+            margin-bottom: 25px;
+        }
+
+        .modal-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .modal-section h3 {
+            color: #667eea;
+            margin-bottom: 12px;
+            font-size: 1.05em;
+        }
+
+        .modal-select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            font-size: 1em;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+
+        .modal-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
         .loading {
@@ -571,47 +832,6 @@
 
         <div class="main-content">
             <div class="sidebar">
-                <div class="model-selector">
-                    <label for="model-select">Select Model:</label>
-                    <select id="model-select" class="model-select">
-                        <option value="">Loading models...</option>
-                    </select>
-                </div>
-
-                <div id="model-info" class="model-info" style="display: none;">
-                    <h3>Model Information</h3>
-                    <div class="info-row">
-                        <span class="info-label">Status:</span>
-                        <span class="info-value"><span id="model-status"></span></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Type:</span>
-                        <span class="info-value" id="model-type"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Size:</span>
-                        <span class="info-value" id="model-size"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Format:</span>
-                        <span class="info-value" id="model-format"></span>
-                    </div>
-                </div>
-
-                <div id="system-prompt-section" class="system-prompt-section" style="display: none;">
-                    <h3>🧠 System Prompt</h3>
-                    <textarea 
-                        id="system-prompt-input" 
-                        class="system-prompt-textarea" 
-                        placeholder="Enter a system prompt to steer this model..."
-                    ></textarea>
-                    <div class="system-prompt-actions">
-                        <button id="system-prompt-save" class="system-prompt-button primary" onclick="saveSystemPrompt()">Save Prompt</button>
-                        <button id="system-prompt-reset" class="system-prompt-button secondary" onclick="resetSystemPrompt()">Revert</button>
-                    </div>
-                    <div id="system-prompt-status" class="system-prompt-status"></div>
-                </div>
-
                 <div class="settings-section">
                     <h3>⚙️ Generation Settings</h3>
                     <div class="setting-row">
@@ -625,10 +845,8 @@
                     <button class="clear-button" onclick="clearChat()">Clear Chat</button>
                 </div>
 
-                <!-- Real-time System Monitoring -->
                 <div class="monitoring-section">
                     <h3>📊 System Monitor</h3>
-                    
                     <div class="metric-card">
                         <div class="metric-label">CPU Usage</div>
                         <div class="metric-value" id="cpu-usage">--</div>
@@ -653,7 +871,7 @@
                 <div id="messages" class="messages-container">
                     <div class="message assistant">
                         <div class="message-header">🤖 Assistant</div>
-                        <div class="message-content">Welcome to DxGChatBenchMark! Select a model from the sidebar and start chatting. I'll show you real-time performance metrics for each response.</div>
+                        <div class="message-content">Welcome to DxGChatBenchMark! Choose a model from the footer icons below and start chatting. I’ll show real-time performance metrics for every response.</div>
                     </div>
                 </div>
 
@@ -667,7 +885,66 @@
                         ></textarea>
                         <button id="send-button" class="send-button" onclick="sendMessage()">Send</button>
                     </div>
+                    <div class="input-footer">
+                        <div class="model-footer">
+                            <span class="footer-label">Models</span>
+                            <div id="model-chips" class="model-chips">
+                                <span class="model-empty">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="model-modal" class="modal" aria-hidden="true">
+        <div class="modal-overlay" onclick="closeModelModal(event)"></div>
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="model-modal-title">
+            <div class="modal-header">
+                <h2 id="model-modal-title" class="modal-title">Model Control Center</h2>
+                <button class="modal-close" onclick="closeModelModal()" aria-label="Close model settings">&times;</button>
+            </div>
+
+            <div class="modal-section">
+                <h3>Select Active Model</h3>
+                <select id="model-select" class="modal-select">
+                    <option value="">Loading models...</option>
+                </select>
+            </div>
+
+            <div id="model-info" class="modal-section model-info" style="display: none;">
+                <h3>Model Information</h3>
+                <div class="info-row">
+                    <span class="info-label">Status:</span>
+                    <span class="info-value"><span id="model-status"></span></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Type:</span>
+                    <span class="info-value" id="model-type"></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Size:</span>
+                    <span class="info-value" id="model-size"></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Format:</span>
+                    <span class="info-value" id="model-format"></span>
+                </div>
+            </div>
+
+            <div id="system-prompt-section" class="modal-section system-prompt-section" style="display: none;">
+                <h3>🧠 System Prompt</h3>
+                <textarea 
+                    id="system-prompt-input" 
+                    class="system-prompt-textarea" 
+                    placeholder="Enter a system prompt to steer this model..."
+                ></textarea>
+                <div class="system-prompt-actions">
+                    <button id="system-prompt-save" class="system-prompt-button primary" onclick="saveSystemPrompt()">Save Prompt</button>
+                    <button id="system-prompt-reset" class="system-prompt-button secondary" onclick="resetSystemPrompt()">Revert</button>
+                </div>
+                <div id="system-prompt-status" class="system-prompt-status"></div>
             </div>
         </div>
     </div>
@@ -679,50 +956,75 @@
         let conversationHistory = [];
         let currentModel = null;
         let systemPromptStatusTimeout = null;
+    let modelModal = null;
+    let modelSelectElement = null;
+    let modelChipsContainer = null;
 
         // Load available models
         async function loadModels() {
             try {
                 const response = await fetch('/api/models');
                 const data = await response.json();
-                models = data.models;
-                
-                const select = document.getElementById('model-select');
-                const previousSelection = select.value;
-                select.innerHTML = '';
-                
-                if (models.length === 0) {
-                    select.innerHTML = '<option value="">No models available</option>';
-                    currentModel = null;
-                    toggleSystemPromptSection(false);
-                    return;
-                }
-                
-                select.innerHTML = '<option value="">Select a model...</option>';
-                models.forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = model.id;
-                    option.textContent = `${model.name} ${model.available ? '✓' : '✗'}`;
-                    option.disabled = !model.available;
-                    select.appendChild(option);
-                });
-                
-                let targetModelId = '';
+                const newModels = data.models || [];
 
-                if (previousSelection && models.find(m => m.id === previousSelection)) {
+                if (!modelSelectElement) {
+                    modelSelectElement = document.getElementById('model-select');
+                }
+
+                const previousSelection = currentModel ? currentModel.id : (modelSelectElement ? modelSelectElement.value : '');
+                
+                // Only update if models have changed
+                const modelsChanged = JSON.stringify(models) !== JSON.stringify(newModels);
+                models = newModels;
+
+                if (modelsChanged) {
+                    if (modelSelectElement) {
+                        modelSelectElement.innerHTML = '';
+                    }
+
+                    if (models.length === 0) {
+                        if (modelSelectElement) {
+                            modelSelectElement.innerHTML = '<option value="">No models available</option>';
+                        }
+                        currentModel = null;
+                        toggleSystemPromptSection(false);
+                        renderModelChips();
+                        return;
+                    }
+
+                if (modelSelectElement) {
+                    const placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = 'Select a model...';
+                    placeholder.disabled = true;
+                    placeholder.hidden = true;
+                    modelSelectElement.appendChild(placeholder);
+
+                    models.forEach((model) => {
+                        const option = document.createElement('option');
+                        option.value = model.id;
+                        option.textContent = model.name;
+                        option.disabled = !model.available;
+                        modelSelectElement.appendChild(option);
+                    });
+                }
+
+                let targetModelId = '';
+                if (previousSelection && models.some((m) => m.id === previousSelection)) {
                     targetModelId = previousSelection;
                 } else {
-                    const firstAvailable = models.find(m => m.available);
+                    const firstAvailable = models.find((m) => m.available) || models[0];
                     if (firstAvailable) {
                         targetModelId = firstAvailable.id;
                     }
                 }
 
                 if (targetModelId) {
-                    select.value = targetModelId;
-                    updateModelInfo();
+                    updateModelInfo(targetModelId);
                 } else {
                     toggleSystemPromptSection(false);
+                    renderModelChips();
+                }
                 }
             } catch (error) {
                 console.error('Error loading models:', error);
@@ -730,27 +1032,46 @@
             }
         }
 
-        // Update model info sidebar
-        function updateModelInfo() {
+        // Update model info modal and active state
+        function updateModelInfo(explicitModelId = null) {
+            if (!modelSelectElement) {
+                modelSelectElement = document.getElementById('model-select');
+            }
+
             const previousModelId = currentModel ? currentModel.id : null;
-            const modelId = document.getElementById('model-select').value;
-            const model = models.find(m => m.id === modelId);
-            
+            const targetId = explicitModelId !== null ? explicitModelId : (modelSelectElement ? modelSelectElement.value : '');
+            const model = models.find((m) => m.id === targetId);
+
             if (!model) {
-                document.getElementById('model-info').style.display = 'none';
+                const infoPanel = document.getElementById('model-info');
+                if (infoPanel) {
+                    infoPanel.style.display = 'none';
+                }
+                if (modelSelectElement) {
+                    modelSelectElement.value = '';
+                }
                 toggleSystemPromptSection(false);
                 currentModel = null;
+                renderModelChips();
                 return;
             }
-            
+
             currentModel = model;
-            document.getElementById('model-info').style.display = 'block';
-            document.getElementById('model-status').innerHTML = `<span class="status-indicator ${model.available ? 'status-online' : 'status-offline'}"></span> ${model.available ? 'Online' : 'Offline'}`;
-            document.getElementById('model-type').textContent = model.type;
-            document.getElementById('model-size').textContent = model.size;
-            document.getElementById('model-format').textContent = model.format;
+            if (modelSelectElement) {
+                modelSelectElement.value = model.id;
+            }
+
+            const infoPanel = document.getElementById('model-info');
+            if (infoPanel) {
+                infoPanel.style.display = 'block';
+                document.getElementById('model-status').innerHTML = `<span class="status-indicator ${model.available ? 'status-online' : 'status-offline'}"></span> ${model.available ? 'Online' : 'Offline'}`;
+                document.getElementById('model-type').textContent = model.type;
+                document.getElementById('model-size').textContent = model.size;
+                document.getElementById('model-format').textContent = model.format;
+            }
 
             populateSystemPrompt(model.system_prompt || '');
+            renderModelChips();
 
             if (previousModelId && previousModelId !== model.id) {
                 clearChat();
@@ -761,57 +1082,363 @@
         async function sendMessage() {
             const input = document.getElementById('message-input');
             const message = input.value.trim();
-            
+
             if (!message) return;
             if (!currentModel) {
                 showError('Please select a model first');
                 return;
             }
-            
-            // Add user message to UI
+
             addMessage('user', message);
             conversationHistory.push({ role: 'user', content: message });
-            
-            // Clear input
             input.value = '';
-            
-            // Disable send button
+
             const sendButton = document.getElementById('send-button');
             sendButton.disabled = true;
             sendButton.innerHTML = '<span class="loading"></span>';
-            
+
+            const streamingMessage = createStreamingAssistantMessage();
+
             try {
-                const maxTokens = parseInt(document.getElementById('max-tokens').value);
+                const maxTokens = parseInt(document.getElementById('max-tokens').value, 10);
                 const temperature = parseFloat(document.getElementById('temperature').value);
-                
-                const response = await fetch('/api/chat', {
+
+                const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model_id: currentModel.id,
                         messages: conversationHistory,
                         max_tokens: maxTokens,
-                        temperature: temperature
+                        temperature: temperature,
+                        stream: true
                     })
                 });
-                
-                if (!response.ok) {
+
+                if (!response.ok || !response.body) {
                     throw new Error(`HTTP ${response.status}: ${await response.text()}`);
                 }
-                
-                const result = await response.json();
-                
-                // Add assistant message with benchmarks
-                addMessage('assistant', result.response_text, result);
-                conversationHistory.push({ role: 'assistant', content: result.response_text });
-                
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let summaryPayload = null;
+                let streamError = null;
+
+                const cancelReader = async () => {
+                    try {
+                        await reader.cancel();
+                    } catch (err) {
+                        console.debug('Reader cancel failed', err);
+                    }
+                };
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        buffer += decoder.decode();
+                    } else {
+                        buffer += decoder.decode(value, { stream: true });
+                    }
+
+                    let separatorIndex;
+                    while ((separatorIndex = buffer.indexOf('\n\n')) >= 0) {
+                        const rawEvent = buffer.slice(0, separatorIndex);
+                        buffer = buffer.slice(separatorIndex + 2);
+
+                        if (!rawEvent.trim()) {
+                            continue;
+                        }
+
+                        const parsed = parseSseEvent(rawEvent);
+                        if (!parsed) {
+                            continue;
+                        }
+
+                        const { event: eventType, data } = parsed;
+
+                        if (eventType === 'token') {
+                            const fragment = data && data.text ? data.text : '';
+                            if (fragment) {
+                                streamingMessage.appendToken(fragment);
+                            }
+                        } else if (eventType === 'reasoning') {
+                            const fragment = data && data.text ? data.text : '';
+                            if (fragment) {
+                                streamingMessage.appendReasoning(fragment);
+                            }
+                        } else if (eventType === 'summary') {
+                            summaryPayload = data;
+                            await cancelReader();
+                            break;
+                        } else if (eventType === 'error') {
+                            const errMessage = data && data.message ? data.message : 'Stream error';
+                            streamError = new Error(errMessage);
+                            await cancelReader();
+                            break;
+                        }
+                    }
+
+                    if (summaryPayload || streamError) {
+                        break;
+                    }
+
+                    if (done) {
+                        break;
+                    }
+                }
+
+                if (streamError) {
+                    throw streamError;
+                }
+
+                if (!summaryPayload || !summaryPayload.result) {
+                    throw new Error('Stream finished without summary payload');
+                }
+
+                streamingMessage.finalize(summaryPayload.result, summaryPayload.reasoning || '');
+                conversationHistory.push({ role: 'assistant', content: summaryPayload.result.response_text });
+
             } catch (error) {
-                console.error('Error:', error);
-                showError(`Failed to get response: ${error.message}`);
+                console.error('Streaming error:', error);
+                streamingMessage.showError(error.message || 'Streaming failed');
             } finally {
                 sendButton.disabled = false;
                 sendButton.textContent = 'Send';
             }
+        }
+
+        function renderBenchmarkStats(benchmark) {
+            if (!benchmark) {
+                return '';
+            }
+
+            const promptSpeed = benchmark.prompt_tokens_per_sec ?? benchmark.prompt_processing_speed ?? 0;
+            const generationSpeed = benchmark.generation_tokens_per_sec ?? benchmark.token_generation_speed ?? 0;
+            const throughput = benchmark.throughput ?? 0;
+            const ttft = benchmark.time_to_first_token ?? benchmark.prefill_duration ?? null;
+
+            const promptTokens = benchmark.prompt_tokens ?? 0;
+            const completionTokens = benchmark.completion_tokens ?? 0;
+            const totalTime = benchmark.total_time ?? 0;
+
+            const prefillDuration = benchmark.prefill_duration ?? null;
+            const generationDuration = benchmark.generation_duration ?? null;
+
+            const formatNum = (value, digits = 2) => {
+                if (value === null || value === undefined || Number.isNaN(value)) {
+                    return '—';
+                }
+                const num = typeof value === 'number' ? value : Number(value);
+                if (!Number.isFinite(num)) {
+                    return '—';
+                }
+                return num.toFixed(digits);
+            };
+
+            return `
+                <div class="benchmark-info">
+                    <strong>📊 Performance Metrics:</strong>
+                    <div class="benchmark-stats">
+                        <div class="stat">
+                            <span class="stat-label">Prompt Tokens</span>
+                            <span class="stat-value">${promptTokens.toLocaleString()}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Generated Tokens</span>
+                            <span class="stat-value">${completionTokens.toLocaleString()}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Total Time (s)</span>
+                            <span class="stat-value">${formatNum(totalTime, 2)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Time To First Token (s)</span>
+                            <span class="stat-value">${ttft !== null ? formatNum(ttft, 3) : '—'}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Prompt tok/s</span>
+                            <span class="stat-value">${formatNum(promptSpeed, 2)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Generation tok/s</span>
+                            <span class="stat-value">${formatNum(generationSpeed, 2)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Throughput tok/s</span>
+                            <span class="stat-value">${formatNum(throughput, 2)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Prefill Duration (s)</span>
+                            <span class="stat-value">${prefillDuration !== null ? formatNum(prefillDuration, 3) : '—'}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Generation Duration (s)</span>
+                            <span class="stat-value">${generationDuration !== null ? formatNum(generationDuration, 3) : '—'}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function scrollMessagesToBottom() {
+            const messagesContainer = document.getElementById('messages');
+            if (messagesContainer) {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        }
+
+        function parseSseEvent(rawEvent) {
+            const lines = rawEvent.split('\n');
+            let eventType = 'message';
+            const dataLines = [];
+
+            lines.forEach((line) => {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    return;
+                }
+                if (trimmed.startsWith('event:')) {
+                    eventType = trimmed.slice(6).trim();
+                } else if (trimmed.startsWith('data:')) {
+                    dataLines.push(trimmed.slice(5).trim());
+                }
+            });
+
+            const dataString = dataLines.join('\n');
+            let data = null;
+
+            if (dataString) {
+                try {
+                    data = JSON.parse(dataString);
+                } catch (error) {
+                    console.debug('Failed to parse SSE data as JSON, returning raw string', error);
+                    data = dataString;
+                }
+            }
+
+            return { event: eventType, data };
+        }
+
+        function createStreamingAssistantMessage() {
+            const messagesContainer = document.getElementById('messages');
+            const container = document.createElement('div');
+            container.className = 'message assistant streaming';
+
+            const reasoningBlock = document.createElement('div');
+            reasoningBlock.className = 'reasoning-block hidden';
+
+            const reasoningTitle = document.createElement('div');
+            reasoningTitle.className = 'reasoning-title';
+            reasoningTitle.innerHTML = '<span class="reasoning-toggle">▼</span> 🧠 Reasoning';
+
+            const reasoningText = document.createElement('div');
+            reasoningText.className = 'reasoning-text';
+
+            // Toggle collapse on click
+            reasoningTitle.addEventListener('click', () => {
+                const toggle = reasoningTitle.querySelector('.reasoning-toggle');
+                const isCollapsed = reasoningText.classList.toggle('collapsed');
+                toggle.classList.toggle('collapsed', isCollapsed);
+            });
+
+            reasoningBlock.appendChild(reasoningTitle);
+            reasoningBlock.appendChild(reasoningText);
+
+            const header = document.createElement('div');
+            header.className = 'message-header';
+            header.textContent = '🤖 Assistant';
+
+            const content = document.createElement('div');
+            content.className = 'message-content';
+
+            const indicator = document.createElement('div');
+            indicator.className = 'streaming-indicator';
+            indicator.innerHTML = '<span class="dot"></span><span>Streaming response…</span>';
+
+            const textWrapper = document.createElement('div');
+            textWrapper.className = 'streaming-text';
+
+            content.appendChild(indicator);
+            content.appendChild(textWrapper);
+
+            const metricsHolder = document.createElement('div');
+            metricsHolder.className = 'streaming-metrics';
+
+            container.appendChild(reasoningBlock);
+            container.appendChild(header);
+            container.appendChild(content);
+            container.appendChild(metricsHolder);
+
+            messagesContainer.appendChild(container);
+            scrollMessagesToBottom();
+
+            let contentBuffer = '';
+            let reasoningBuffer = '';
+
+            const updateContent = () => {
+                textWrapper.innerHTML = renderMarkdown(contentBuffer);
+                scrollMessagesToBottom();
+            };
+
+            const updateReasoning = () => {
+                if (reasoningBuffer.trim()) {
+                    reasoningText.textContent = reasoningBuffer.trim();
+                    reasoningBlock.classList.remove('hidden');
+                } else {
+                    reasoningBlock.classList.add('hidden');
+                }
+                scrollMessagesToBottom();
+            };
+
+            return {
+                appendToken(fragment) {
+                    if (indicator && !indicator.classList.contains('hidden')) {
+                        const labelSpan = indicator.querySelector('span:last-child');
+                        if (labelSpan) {
+                            labelSpan.textContent = 'Streaming response…';
+                        }
+                    }
+                    contentBuffer += fragment;
+                    indicator.classList.add('hidden');
+                    updateContent();
+                },
+                appendReasoning(fragment) {
+                    reasoningBuffer += fragment;
+                    updateReasoning();
+                },
+                finalize(benchmark, reasoningSummary) {
+                    container.classList.remove('streaming');
+                    indicator.classList.add('hidden');
+
+                    const finalText = benchmark && benchmark.response_text ? benchmark.response_text : contentBuffer;
+                    contentBuffer = finalText;
+                    updateContent();
+
+                    const combinedReasoning = [reasoningBuffer, reasoningSummary]
+                        .filter(Boolean)
+                        .join('\n')
+                        .trim();
+                    reasoningBuffer = combinedReasoning;
+                    updateReasoning();
+
+                    // Auto-collapse reasoning when done
+                    if (reasoningBuffer.trim()) {
+                        const toggle = reasoningTitle.querySelector('.reasoning-toggle');
+                        reasoningText.classList.add('collapsed');
+                        toggle.classList.add('collapsed');
+                    }
+
+                    if (benchmark) {
+                        metricsHolder.innerHTML = renderBenchmarkStats(benchmark);
+                    }
+                },
+                showError(message) {
+                    container.classList.remove('streaming');
+                    indicator.classList.remove('hidden');
+                    indicator.innerHTML = `❌ ${escapeHtml(message)}`;
+                }
+            };
         }
 
         // Add message to chat
@@ -830,42 +1457,12 @@
             `;
             
             if (benchmark) {
-                html += `
-                    <div class="benchmark-info">
-                        <strong>📊 Performance Metrics:</strong>
-                        <div class="benchmark-stats">
-                            <div class="stat">
-                                <span class="stat-label">Prompt Tokens</span>
-                                <span class="stat-value">${benchmark.prompt_tokens.toLocaleString()}</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-label">Generated</span>
-                                <span class="stat-value">${benchmark.completion_tokens.toLocaleString()}</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-label">Total Time</span>
-                                <span class="stat-value">${benchmark.total_time}s</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-label">Prefill Speed</span>
-                                <span class="stat-value">${benchmark.prompt_processing_speed} tok/s</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-label">Gen Speed</span>
-                                <span class="stat-value">${benchmark.token_generation_speed} tok/s</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-label">Throughput</span>
-                                <span class="stat-value">${benchmark.throughput} tok/s</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                html += renderBenchmarkStats(benchmark);
             }
             
             messageDiv.innerHTML = html;
             messagesContainer.appendChild(messageDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            scrollMessagesToBottom();
         }
 
         // Show error
@@ -875,7 +1472,7 @@
             errorDiv.className = 'error-message';
             errorDiv.textContent = `❌ Error: ${message}`;
             messagesContainer.appendChild(errorDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            scrollMessagesToBottom();
         }
 
         // Clear chat
@@ -888,6 +1485,125 @@
                     <div class="message-content">Chat cleared. Ready for a new conversation!</div>
                 </div>
             `;
+        }
+
+        function getModelIconText(name) {
+            if (!name) return '?';
+            const cleaned = name.replace(/\s+/g, ' ').trim();
+            const words = cleaned.split(' ');
+            if (words.length === 1) {
+                return words[0].slice(0, 2).toUpperCase();
+            }
+            return (words[0][0] + words[1][0]).toUpperCase();
+        }
+
+        function getModelDisplayName(model) {
+            if (!model || !model.name) return '';
+            const stripped = model.name.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+            return stripped.length > 0 ? stripped : model.name;
+        }
+
+        function renderModelChips() {
+            if (!modelChipsContainer) {
+                modelChipsContainer = document.getElementById('model-chips');
+            }
+
+            if (!modelChipsContainer) {
+                return;
+            }
+
+            modelChipsContainer.innerHTML = '';
+
+            if (!models.length) {
+                const empty = document.createElement('span');
+                empty.className = 'model-empty';
+                empty.textContent = 'No models available';
+                modelChipsContainer.appendChild(empty);
+                return;
+            }
+
+            models.forEach((model) => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'model-chip';
+                chip.title = `${model.name} • ${model.available ? 'Online' : 'Offline'}`;
+                chip.setAttribute('aria-label', `${model.name} ${model.available ? 'online' : 'offline'}`);
+
+                if (currentModel && currentModel.id === model.id) {
+                    chip.classList.add('active');
+                }
+
+                if (!model.available) {
+                    chip.classList.add('offline');
+                }
+
+                const icon = document.createElement('span');
+                icon.className = 'chip-icon' + (model.available ? '' : ' offline');
+                icon.textContent = getModelIconText(model.name);
+
+                const statusDot = document.createElement('span');
+                statusDot.className = 'chip-status' + (model.available ? '' : ' offline');
+                icon.appendChild(statusDot);
+
+                const label = document.createElement('span');
+                label.className = 'chip-label';
+                label.textContent = getModelDisplayName(model);
+
+                chip.appendChild(icon);
+                chip.appendChild(label);
+
+                chip.addEventListener('click', () => {
+                    openModelModal(model.id);
+                });
+
+                modelChipsContainer.appendChild(chip);
+            });
+        }
+
+        function openModelModal(modelId = null) {
+            if (!modelModal) {
+                modelModal = document.getElementById('model-modal');
+            }
+            if (!modelModal) {
+                return;
+            }
+
+            if (!modelSelectElement) {
+                modelSelectElement = document.getElementById('model-select');
+            }
+
+            modelModal.classList.add('visible');
+            modelModal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('modal-open');
+
+            const fallbackModel = currentModel ? currentModel.id : (models[0] ? models[0].id : '');
+            const targetId = modelId || fallbackModel;
+
+            if (targetId) {
+                updateModelInfo(targetId);
+            }
+
+            if (modelSelectElement && targetId) {
+                modelSelectElement.value = targetId;
+                modelSelectElement.focus();
+            }
+        }
+
+        function closeModelModal(event) {
+            if (event && event.currentTarget && event.target !== event.currentTarget) {
+                return;
+            }
+
+            if (!modelModal) {
+                modelModal = document.getElementById('model-modal');
+            }
+            if (!modelModal) {
+                return;
+            }
+
+            modelModal.classList.remove('visible');
+            modelModal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
         }
 
         // Escape HTML
@@ -1122,6 +1838,10 @@
                 window.marked.setOptions({ breaks: true, gfm: true });
             }
 
+            modelModal = document.getElementById('model-modal');
+            modelSelectElement = document.getElementById('model-select');
+            modelChipsContainer = document.getElementById('model-chips');
+
             const input = document.getElementById('message-input');
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -1129,17 +1849,24 @@
                     sendMessage();
                 }
             });
-            
-            document.getElementById('model-select').addEventListener('change', updateModelInfo);
+
+            if (modelSelectElement) {
+                modelSelectElement.addEventListener('change', (event) => {
+                    updateModelInfo(event.target.value);
+                });
+            }
             
             // Load models on startup
             loadModels();
             
-            // Refresh models every 30 seconds
-            setInterval(loadModels, 30000);
-            
             // Connect to monitoring WebSocket
             connectMonitoring();
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && modelModal && modelModal.classList.contains('visible')) {
+                    closeModelModal();
+                }
+            });
         });
 
         function populateSystemPrompt(promptText) {

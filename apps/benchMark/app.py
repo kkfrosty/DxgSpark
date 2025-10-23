@@ -117,6 +117,11 @@ def _save_system_prompts_to_file(snapshot: Dict[str, str]) -> None:
         print(f"Failed to save system prompts to file: {exc}")
 
 
+def _format_sse(event: str, data: Dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
 async def _load_system_prompts_from_db() -> Dict[str, str]:
     if not AsyncSessionLocal:
         return {}
@@ -203,11 +208,64 @@ class BenchmarkResult(BaseModel):
     throughput: float
     timestamp: str
     response_text: str
+    prompt_tokens_per_sec: Optional[float] = None
+    generation_tokens_per_sec: Optional[float] = None
+    time_to_first_token: Optional[float] = None
+    prefill_duration: Optional[float] = None
+    generation_duration: Optional[float] = None
 
 
 class SystemPromptUpdate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     prompt: str = ""
+
+
+def _extract_stream_segments(delta: Dict[str, Any]) -> Dict[str, str]:
+    """Normalize streamed delta payloads into content and reasoning strings."""
+    text_buffer: List[str] = []
+    reasoning_buffer: List[str] = []
+
+    content = delta.get("content")
+    if isinstance(content, str):
+        text_buffer.append(content)
+    elif isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type in {"text", "output_text"}:
+                text_buffer.append(item.get("text", ""))
+            elif item_type in {"reasoning", "thinking"}:
+                reasoning_buffer.append(item.get("text", ""))
+
+    reasoning = delta.get("reasoning")
+    if isinstance(reasoning, str):
+        reasoning_buffer.append(reasoning)
+    elif isinstance(reasoning, list):
+        for item in reasoning:
+            if isinstance(item, dict):
+                reasoning_buffer.append(item.get("text", ""))
+
+    reasoning_content = delta.get("reasoning_content")
+    if isinstance(reasoning_content, str):
+        reasoning_buffer.append(reasoning_content)
+    elif isinstance(reasoning_content, list):
+        for item in reasoning_content:
+            if isinstance(item, dict):
+                reasoning_buffer.append(item.get("text", ""))
+
+    thinking = delta.get("thinking")
+    if isinstance(thinking, str):
+        reasoning_buffer.append(thinking)
+    elif isinstance(thinking, list):
+        for item in thinking:
+            if isinstance(item, dict):
+                reasoning_buffer.append(item.get("text", ""))
+
+    return {
+        "content": "".join(text_buffer),
+        "reasoning": "".join(reasoning_buffer),
+    }
 
 
 @app.on_event("startup")
@@ -346,11 +404,13 @@ async def chat(request: ChatRequest):
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
         total_time=round(total_time, 2),
-        prompt_processing_speed=round(prompt_processing_speed, 1),
-        token_generation_speed=round(token_generation_speed, 1),
-        throughput=round(throughput, 1),
+        prompt_processing_speed=round(prompt_processing_speed, 2),
+        token_generation_speed=round(token_generation_speed, 2),
+        throughput=round(throughput, 2),
         timestamp=datetime.now().isoformat(),
-        response_text=generated_text
+        response_text=generated_text,
+        prompt_tokens_per_sec=round(prompt_processing_speed, 2),
+        generation_tokens_per_sec=round(token_generation_speed, 2)
     )
     
     # Store in performance history
@@ -379,6 +439,178 @@ async def chat(request: ChatRequest):
     await _log_chat_interaction(request.model_id, payload["messages"], result)
 
     return benchmark_result
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Stream chat completions and metrics to the client via SSE."""
+
+    if request.model_id not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model {request.model_id} not found")
+
+    model_config = MODELS[request.model_id]
+    api_url = f"{model_config['url']}/v1/chat/completions"
+
+    async with _system_prompts_lock:
+        system_prompt = system_prompts.get(request.model_id, "")
+
+    messages_payload = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+    if system_prompt.strip():
+        messages_payload.insert(0, {"role": "system", "content": system_prompt})
+
+    payload = {
+        "model": "default",
+        "messages": messages_payload,
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+        "stream": True
+    }
+
+    async def event_generator():
+        start_time = time.perf_counter()
+        first_token_time: Optional[float] = None
+        response_text: str = ""
+        reasoning_text: str = ""
+        usage_payload: Dict[str, Any] = {}
+        content_token_count: int = 0
+        reasoning_token_count: int = 0
+
+        yield _format_sse("status", {"state": "started"})
+
+        try:
+            timeout = httpx.Timeout(120.0, read=None)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", api_url, json=payload) as upstream:
+                    upstream.raise_for_status()
+                    async for raw_line in upstream.aiter_lines():
+                        if raw_line is None:
+                            continue
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("data:"):
+                            line = line[5:].strip()
+                        if line == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        if chunk.get("usage"):
+                            usage_payload = chunk["usage"]
+
+                        choices = chunk.get("choices", [])
+                        for choice in choices:
+                            delta = choice.get("delta", {})
+                            segments = _extract_stream_segments(delta)
+
+                            if segments["content"]:
+                                if first_token_time is None:
+                                    first_token_time = time.perf_counter()
+                                response_text += segments["content"]
+                                content_token_count += 1
+                                yield _format_sse("token", {"text": segments["content"]})
+
+                            if segments["reasoning"]:
+                                if first_token_time is None:
+                                    first_token_time = time.perf_counter()
+                                reasoning_text += segments["reasoning"]
+                                reasoning_token_count += 1
+                                yield _format_sse("reasoning", {"text": segments["reasoning"]})
+
+        except httpx.HTTPError as exc:
+            yield _format_sse("error", {"message": f"Model API error: {str(exc)}"})
+            return
+        except Exception as exc:
+            yield _format_sse("error", {"message": str(exc)})
+            return
+
+        end_time = time.perf_counter()
+        if first_token_time is None:
+            first_token_time = end_time
+
+        # Get token counts from usage or fallback to our count
+        prompt_tokens = usage_payload.get("prompt_tokens", 0)
+        completion_tokens = usage_payload.get("completion_tokens", 0)
+        
+        # If model didn't provide usage, use our token counts
+        if completion_tokens == 0 and (content_token_count > 0 or reasoning_token_count > 0):
+            completion_tokens = content_token_count + reasoning_token_count
+        
+        total_tokens = usage_payload.get("total_tokens", prompt_tokens + completion_tokens)
+        if total_tokens == 0:
+            total_tokens = prompt_tokens + completion_tokens
+
+        prefill_duration = max(first_token_time - start_time, 0.0)
+        generation_duration = max(end_time - first_token_time, 0.0)
+        total_duration = max(end_time - start_time, 0.0)
+
+        prompt_speed = prompt_tokens / prefill_duration if prefill_duration > 0 else 0.0
+        generation_speed = completion_tokens / generation_duration if generation_duration > 0 else 0.0
+        throughput = total_tokens / total_duration if total_duration > 0 else 0.0
+
+        benchmark_result = BenchmarkResult(
+            model_id=request.model_id,
+            model_name=model_config["name"],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            total_time=round(total_duration, 2),
+            prompt_processing_speed=round(prompt_speed, 2),
+            token_generation_speed=round(generation_speed, 2),
+            throughput=round(throughput, 2),
+            timestamp=datetime.now().isoformat(),
+            response_text=response_text,
+            prompt_tokens_per_sec=round(prompt_speed, 2),
+            generation_tokens_per_sec=round(generation_speed, 2),
+            time_to_first_token=round(prefill_duration, 4),
+            prefill_duration=round(prefill_duration, 4),
+            generation_duration=round(generation_duration, 4)
+        )
+
+        await _log_chat_interaction(request.model_id, messages_payload, {
+            "response": response_text,
+            "reasoning": reasoning_text,
+            "usage": usage_payload
+        })
+
+        model_performance_history.append({
+            "model": model_config["name"],
+            "timestamp": benchmark_result.timestamp,
+            "tokens_per_sec": benchmark_result.token_generation_speed,
+            "total_time": total_duration,
+            "tokens": total_tokens
+        })
+
+        for ws in list(active_websockets):
+            try:
+                await ws.send_json({
+                    "type": "performance_update",
+                    "data": {
+                        "model": model_config["name"],
+                        "tokens_per_sec": benchmark_result.token_generation_speed,
+                        "timestamp": benchmark_result.timestamp
+                    }
+                })
+            except Exception:
+                if ws in active_websockets:
+                    active_websockets.remove(ws)
+
+        summary_payload = {
+            "result": benchmark_result.model_dump(),
+            "reasoning": reasoning_text
+        }
+
+        yield _format_sse("summary", summary_payload)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
+    }
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=headers)
 
 
 @app.get("/api/models/{model_id}/system-prompt")
