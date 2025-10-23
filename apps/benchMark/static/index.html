@@ -259,6 +259,45 @@
             word-wrap: break-word;
         }
 
+        .message-content p + p {
+            margin-top: 10px;
+        }
+
+        .message-content ul,
+        .message-content ol {
+            margin: 10px 0 10px 25px;
+        }
+
+        .message-content pre {
+            background: #1f2933;
+            color: #f8f9fa;
+            padding: 12px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-size: 0.9em;
+        }
+
+        .message-content code {
+            background: #f1f3f5;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        }
+
+        .message.user .message-content code {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .message-content pre code {
+            background: transparent;
+            padding: 0;
+        }
+
+        .message-content a {
+            color: #4c6ef5;
+            text-decoration: underline;
+        }
+
         .message.user .message-content {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -430,6 +469,97 @@
         .clear-button:hover {
             background: #5a6268;
         }
+
+        .system-prompt-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            border: 1px solid #dee2e6;
+        }
+
+        .system-prompt-section h3 {
+            color: #667eea;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+
+        .system-prompt-textarea {
+            width: 100%;
+            min-height: 140px;
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            padding: 12px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+
+        .system-prompt-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .system-prompt-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .system-prompt-button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: transform 0.2s, box-shadow 0.2s, background 0.3s;
+        }
+
+        .system-prompt-button.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .system-prompt-button.secondary {
+            background: #e9ecef;
+            color: #495057;
+        }
+
+        .system-prompt-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .system-prompt-button.primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .system-prompt-button.secondary:hover:not(:disabled) {
+            background: #dee2e6;
+        }
+
+        .system-prompt-status {
+            margin-top: 8px;
+            font-size: 0.85em;
+            min-height: 18px;
+        }
+
+        .system-prompt-status.success {
+            color: #28a745;
+        }
+
+        .system-prompt-status.error {
+            color: #dc3545;
+        }
+
+        .system-prompt-status.info {
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -466,6 +596,20 @@
                         <span class="info-label">Format:</span>
                         <span class="info-value" id="model-format"></span>
                     </div>
+                </div>
+
+                <div id="system-prompt-section" class="system-prompt-section" style="display: none;">
+                    <h3>🧠 System Prompt</h3>
+                    <textarea 
+                        id="system-prompt-input" 
+                        class="system-prompt-textarea" 
+                        placeholder="Enter a system prompt to steer this model..."
+                    ></textarea>
+                    <div class="system-prompt-actions">
+                        <button id="system-prompt-save" class="system-prompt-button primary" onclick="saveSystemPrompt()">Save Prompt</button>
+                        <button id="system-prompt-reset" class="system-prompt-button secondary" onclick="resetSystemPrompt()">Revert</button>
+                    </div>
+                    <div id="system-prompt-status" class="system-prompt-status"></div>
                 </div>
 
                 <div class="settings-section">
@@ -528,10 +672,13 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     <script>
         let models = [];
         let conversationHistory = [];
         let currentModel = null;
+        let systemPromptStatusTimeout = null;
 
         // Load available models
         async function loadModels() {
@@ -541,10 +688,13 @@
                 models = data.models;
                 
                 const select = document.getElementById('model-select');
+                const previousSelection = select.value;
                 select.innerHTML = '';
                 
                 if (models.length === 0) {
                     select.innerHTML = '<option value="">No models available</option>';
+                    currentModel = null;
+                    toggleSystemPromptSection(false);
                     return;
                 }
                 
@@ -557,11 +707,22 @@
                     select.appendChild(option);
                 });
                 
-                // Auto-select first available model
-                const firstAvailable = models.find(m => m.available);
-                if (firstAvailable) {
-                    select.value = firstAvailable.id;
+                let targetModelId = '';
+
+                if (previousSelection && models.find(m => m.id === previousSelection)) {
+                    targetModelId = previousSelection;
+                } else {
+                    const firstAvailable = models.find(m => m.available);
+                    if (firstAvailable) {
+                        targetModelId = firstAvailable.id;
+                    }
+                }
+
+                if (targetModelId) {
+                    select.value = targetModelId;
                     updateModelInfo();
+                } else {
+                    toggleSystemPromptSection(false);
                 }
             } catch (error) {
                 console.error('Error loading models:', error);
@@ -571,11 +732,14 @@
 
         // Update model info sidebar
         function updateModelInfo() {
+            const previousModelId = currentModel ? currentModel.id : null;
             const modelId = document.getElementById('model-select').value;
             const model = models.find(m => m.id === modelId);
             
             if (!model) {
                 document.getElementById('model-info').style.display = 'none';
+                toggleSystemPromptSection(false);
+                currentModel = null;
                 return;
             }
             
@@ -585,6 +749,12 @@
             document.getElementById('model-type').textContent = model.type;
             document.getElementById('model-size').textContent = model.size;
             document.getElementById('model-format').textContent = model.format;
+
+            populateSystemPrompt(model.system_prompt || '');
+
+            if (previousModelId && previousModelId !== model.id) {
+                clearChat();
+            }
         }
 
         // Send message
@@ -652,10 +822,11 @@
             
             const icon = role === 'user' ? '👤' : '🤖';
             const roleName = role === 'user' ? 'You' : 'Assistant';
+            const contentHtml = role === 'assistant' ? renderMarkdown(content) : formatUserMessage(content);
             
             let html = `
                 <div class="message-header">${icon} ${roleName}</div>
-                <div class="message-content">${escapeHtml(content)}</div>
+                <div class="message-content">${contentHtml}</div>
             `;
             
             if (benchmark) {
@@ -724,6 +895,134 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function formatUserMessage(text) {
+            return escapeHtml(text).replace(/\n/g, '<br>');
+        }
+
+        function renderMarkdown(text) {
+            if (!text) {
+                return '';
+            }
+
+            if (window.marked) {
+                const rawHtml = window.marked.parse(text, { mangle: false, headerIds: false });
+                if (window.DOMPurify) {
+                    return window.DOMPurify.sanitize(rawHtml);
+                }
+                return rawHtml;
+            }
+
+            const basicHtml = basicMarkdownToHtml(text);
+            if (window.DOMPurify) {
+                return window.DOMPurify.sanitize(basicHtml);
+            }
+            return basicHtml;
+        }
+
+        function basicMarkdownToHtml(text) {
+            const lines = text.replace(/\r\n/g, '\n').split('\n');
+            let html = '';
+            let inUl = false;
+            let inOl = false;
+            let inCode = false;
+            let codeLanguage = '';
+
+            const flushLists = () => {
+                if (inUl) {
+                    html += '</ul>';
+                    inUl = false;
+                }
+                if (inOl) {
+                    html += '</ol>';
+                    inOl = false;
+                }
+            };
+
+            const inlineFormat = (value) => {
+                let escaped = escapeHtml(value);
+                escaped = escaped.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+                    const safeText = escapeHtml(text);
+                    const safeUrl = escapeHtml(url);
+                    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeText}</a>`;
+                });
+                escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                escaped = escaped.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+                escaped = escaped.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+                escaped = escaped.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
+                escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+                return escaped;
+            };
+
+            lines.forEach((rawLine) => {
+                const line = rawLine.trimEnd();
+
+                if (line.startsWith('```')) {
+                    if (!inCode) {
+                        flushLists();
+                        inCode = true;
+                        codeLanguage = line.slice(3).trim();
+                        const langAttr = codeLanguage ? ` class="language-${escapeHtml(codeLanguage)}"` : '';
+                        html += `<pre><code${langAttr}>`;
+                    } else {
+                        inCode = false;
+                        html += '</code></pre>';
+                    }
+                    return;
+                }
+
+                if (inCode) {
+                    html += `${escapeHtml(rawLine)}\n`;
+                    return;
+                }
+
+                if (/^\s*$/.test(line)) {
+                    flushLists();
+                    html += '';
+                    return;
+                }
+
+                const unorderedMatch = line.match(/^[-*]\s+(.*)$/);
+                if (unorderedMatch) {
+                    if (!inUl) {
+                        flushLists();
+                        inUl = true;
+                        html += '<ul>';
+                    }
+                    html += `<li>${inlineFormat(unorderedMatch[1])}</li>`;
+                    return;
+                }
+
+                const orderedMatch = line.match(/^\d+\.\s+(.*)$/);
+                if (orderedMatch) {
+                    if (!inOl) {
+                        flushLists();
+                        inOl = true;
+                        html += '<ol>';
+                    }
+                    html += `<li>${inlineFormat(orderedMatch[1])}</li>`;
+                    return;
+                }
+
+                flushLists();
+                const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
+                if (headerMatch) {
+                    const level = headerMatch[1].length;
+                    const content = inlineFormat(headerMatch[2]);
+                    html += `<h${level}>${content}</h${level}>`;
+                    return;
+                }
+
+                html += `<p>${inlineFormat(line)}</p>`;
+            });
+
+            flushLists();
+            if (inCode) {
+                html += '</code></pre>';
+            }
+
+            return html;
         }
 
         // System Monitoring
@@ -819,6 +1118,10 @@
 
         // Handle Enter key
         document.addEventListener('DOMContentLoaded', () => {
+            if (window.marked) {
+                window.marked.setOptions({ breaks: true, gfm: true });
+            }
+
             const input = document.getElementById('message-input');
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -838,6 +1141,107 @@
             // Connect to monitoring WebSocket
             connectMonitoring();
         });
+
+        function populateSystemPrompt(promptText) {
+            const section = document.getElementById('system-prompt-section');
+            const input = document.getElementById('system-prompt-input');
+            toggleSystemPromptSection(true);
+            const previous = input.value;
+            input.value = promptText;
+            if (previous !== promptText) {
+                setSystemPromptStatus('Loaded saved prompt.', 'info');
+            } else {
+                setSystemPromptStatus('', 'info');
+            }
+        }
+
+        function toggleSystemPromptSection(show) {
+            const section = document.getElementById('system-prompt-section');
+            if (!section) return;
+            section.style.display = show ? 'block' : 'none';
+            if (!show) {
+                setSystemPromptStatus('', 'info');
+            }
+        }
+
+        async function saveSystemPrompt() {
+            if (!currentModel) {
+                setSystemPromptStatus('Select a model to save a system prompt.', 'error');
+                return;
+            }
+
+            const promptInput = document.getElementById('system-prompt-input');
+            const saveButton = document.getElementById('system-prompt-save');
+            const resetButton = document.getElementById('system-prompt-reset');
+            const payload = { prompt: promptInput.value };
+
+            try {
+                saveButton.disabled = true;
+                resetButton.disabled = true;
+                setSystemPromptStatus('Saving...', 'info');
+
+                const response = await fetch(`/api/models/${currentModel.id}/system-prompt`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                currentModel.system_prompt = data.system_prompt || '';
+                promptInput.value = currentModel.system_prompt;
+                if (currentModel.system_prompt.trim().length > 0) {
+                    setSystemPromptStatus('System prompt saved.', 'success');
+                } else {
+                    setSystemPromptStatus('System prompt cleared.', 'success');
+                }
+            } catch (error) {
+                console.error('Failed to save system prompt:', error);
+                setSystemPromptStatus('Failed to save prompt. Try again.', 'error');
+            } finally {
+                saveButton.disabled = false;
+                resetButton.disabled = false;
+            }
+        }
+
+        function resetSystemPrompt() {
+            if (!currentModel) {
+                setSystemPromptStatus('Select a model to load its prompt.', 'error');
+                return;
+            }
+
+            const input = document.getElementById('system-prompt-input');
+            input.value = currentModel.system_prompt || '';
+            setSystemPromptStatus('Reverted to last saved prompt.', 'info');
+        }
+
+        function setSystemPromptStatus(message, type) {
+            const statusEl = document.getElementById('system-prompt-status');
+            if (!statusEl) {
+                return;
+            }
+
+            statusEl.textContent = message;
+            statusEl.className = 'system-prompt-status';
+            if (type) {
+                statusEl.classList.add(type);
+            }
+
+            if (systemPromptStatusTimeout) {
+                clearTimeout(systemPromptStatusTimeout);
+                systemPromptStatusTimeout = null;
+            }
+
+            if (message) {
+                systemPromptStatusTimeout = setTimeout(() => {
+                    statusEl.textContent = '';
+                    statusEl.className = 'system-prompt-status';
+                }, 4000);
+            }
+        }
     </script>
 </body>
 </html>

@@ -1,0 +1,82 @@
+#
+# Multi-Agent Embedding Stack
+# GPT-OSS-120B (MXFP4 GGUF) + Qwen3 Embeddings
+#
+# Models served via llama.cpp for optimal GPU compatibility
+#
+x-build-base: &build-base
+  build:
+    context: /home/kfrost/dgx-spark-playbooks/nvidia/multi-agent-chatbot/assets
+    dockerfile: Dockerfile.llamacpp
+  image: local/llama.cpp:server-cuda
+
+services:
+  gpt-oss-120b:
+    <<: *build-base
+    container_name: gpt-oss-120b
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - /home/kfrost/assets/models:/models:ro
+    ports:
+      - "8000:8000"
+    command:
+      - "-m"
+      - "/models/gpt-oss-120b-mxfp4-00001-of-00003.gguf"
+      - "--port"
+      - "8000"
+      - "--host"
+      - "0.0.0.0"
+      - "-n"
+      - "65536"
+      - "--n-gpu-layers"
+      - "70"
+      - "--jinja"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  qwen3-embedding:
+    <<: *build-base
+    container_name: qwen3-embedding
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - /home/kfrost/assets/models:/models:ro
+    ports:
+      - "8001:8000"
+    command:
+      - "-m"
+      - "/models/Qwen3-Embedding-4B-Q8_0.gguf"
+      - "--port"
+      - "8000"
+      - "--host"
+      - "0.0.0.0"
+      - "--jinja"
+      - "--embeddings"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  default:
+    name: multi-agent-net
+    driver: bridge

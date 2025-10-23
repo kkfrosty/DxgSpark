@@ -28,6 +28,7 @@ services:
               capabilities: [gpu]
     environment:
       - NGC_API_KEY=${NGC_API_KEY}
+      - NIM_MODEL_PROFILE=e2f00b2cbfb168f907c8d6d4d40406f7261111fbab8b3417a485dcd19d10cc98
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
       interval: 30s

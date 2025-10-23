@@ -7,8 +7,8 @@ Provides a web UI for chatting with any running LLM and measuring performance
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict
+from typing import List, Optional, Dict, Any, Optional as TypingOptional
 import httpx
 import time
 import json
@@ -18,6 +18,13 @@ from collections import deque
 import psutil
 import subprocess
 import os
+from pathlib import Path
+
+from sqlalchemy import Column, DateTime, Integer, String, Text, func, select
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.exc import SQLAlchemyError
 
 app = FastAPI(title="DxGChatBenchMark", version="1.0.0")
 
@@ -28,22 +35,145 @@ active_websockets = []  # For real-time monitoring updates
 
 # Model registry - add your models here
 MODELS = {
+    "gpt-oss-120b": {
+        "name": "GPT-OSS-120B (MXFP4)",
+        "url": "http://localhost:8000",
+        "type": "llama.cpp",
+        "size": "120B",
+        "format": "MXFP4"
+    },
     "deepseek-nvfp4": {
         "name": "DeepSeek-R1-Distill-Llama-8B (NVFP4)",
-        "url": "http://localhost:8000",
+        "url": "http://localhost:8002",
         "type": "TensorRT-LLM",
         "size": "8B",
         "format": "NVFP4"
     },
     "llama-nim": {
         "name": "Llama 3.1 8B Instruct (NIM)",
-        "url": "http://localhost:8001",
+        "url": "http://localhost:8003",
         "type": "NIM",
         "size": "8B",
         "format": "FP16"
     },
     # Add more models as you deploy them
 }
+BASE_DIR = Path(__file__).resolve().parent
+SYSTEM_PROMPTS_FILE = BASE_DIR / "system_prompts.json"
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+Base = declarative_base()
+engine = None
+AsyncSessionLocal: TypingOptional[async_sessionmaker[AsyncSession]] = None
+
+if DATABASE_URL:
+    engine = create_async_engine(DATABASE_URL, future=True, pool_pre_ping=True)
+    AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+
+class SystemPromptRecord(Base):
+    __tablename__ = "system_prompts"
+
+    model_id = Column(String(255), primary_key=True)
+    prompt = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ChatLogRecord(Base):
+    __tablename__ = "chat_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_id = Column(String(255), nullable=False, index=True)
+    request_messages = Column(JSONB, nullable=False)
+    response_payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+_system_prompts_lock = asyncio.Lock()
+system_prompts: Dict[str, str] = {}
+
+
+def _load_system_prompts_from_file() -> Dict[str, str]:
+    if not SYSTEM_PROMPTS_FILE.exists():
+        return {}
+
+    try:
+        with SYSTEM_PROMPTS_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return {str(k): str(v) for k, v in data.items()}
+    except Exception as exc:
+        print(f"Failed to load system prompts from file: {exc}")
+
+    return {}
+
+
+def _save_system_prompts_to_file(snapshot: Dict[str, str]) -> None:
+    try:
+        SYSTEM_PROMPTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with SYSTEM_PROMPTS_FILE.open("w", encoding="utf-8") as f:
+            json.dump(snapshot, f, indent=2)
+    except Exception as exc:
+        print(f"Failed to save system prompts to file: {exc}")
+
+
+async def _load_system_prompts_from_db() -> Dict[str, str]:
+    if not AsyncSessionLocal:
+        return {}
+
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(SystemPromptRecord))
+            prompts = {record.model_id: record.prompt for record in result.scalars()}
+            return prompts
+    except SQLAlchemyError as exc:
+        print(f"Failed to load system prompts from database: {exc}")
+    return {}
+
+
+async def _write_system_prompt_to_db(model_id: str, prompt_text: str) -> None:
+    if not AsyncSessionLocal:
+        return
+
+    try:
+        async with AsyncSessionLocal() as session:
+            existing = await session.get(SystemPromptRecord, model_id)
+            if prompt_text.strip():
+                if existing:
+                    existing.prompt = prompt_text
+                else:
+                    session.add(SystemPromptRecord(model_id=model_id, prompt=prompt_text))
+            else:
+                if existing:
+                    await session.delete(existing)
+            await session.commit()
+    except SQLAlchemyError as exc:
+        print(f"Failed to store system prompt in database: {exc}")
+
+
+async def _log_chat_interaction(model_id: str, request_messages: List[Dict[str, Any]], response_payload: Dict[str, Any]) -> None:
+    if not AsyncSessionLocal:
+        return
+
+    try:
+        request_copy = json.loads(json.dumps(request_messages))
+        response_copy = json.loads(json.dumps(response_payload))
+    except (TypeError, ValueError) as exc:
+        print(f"Skipping chat logging due to serialization error: {exc}")
+        return
+
+    record = ChatLogRecord(
+        model_id=model_id,
+        request_messages=request_copy,
+        response_payload=response_copy,
+    )
+
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(record)
+            await session.commit()
+    except SQLAlchemyError as exc:
+        print(f"Failed to persist chat interaction: {exc}")
 
 
 class ChatMessage(BaseModel):
@@ -52,6 +182,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     model_id: str
     messages: List[ChatMessage]
     max_tokens: Optional[int] = 500
@@ -60,6 +191,7 @@ class ChatRequest(BaseModel):
 
 
 class BenchmarkResult(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     model_id: str
     model_name: str
     prompt_tokens: int
@@ -73,6 +205,32 @@ class BenchmarkResult(BaseModel):
     response_text: str
 
 
+class SystemPromptUpdate(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+    prompt: str = ""
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    """Initialize persistent storage and load cached prompts."""
+    prompts: Dict[str, str] = {}
+
+    if AsyncSessionLocal and engine:
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            prompts = await _load_system_prompts_from_db()
+        except SQLAlchemyError as exc:
+            print(f"Database initialization failed, falling back to file storage: {exc}")
+            prompts = _load_system_prompts_from_file()
+    else:
+        prompts = _load_system_prompts_from_file()
+
+    async with _system_prompts_lock:
+        system_prompts.clear()
+        system_prompts.update(prompts)
+
+
 @app.get("/")
 async def root():
     """Serve the main chat interface"""
@@ -84,7 +242,9 @@ async def root():
 async def get_models():
     """Return available models with health status"""
     models_status = []
-    
+    async with _system_prompts_lock:
+        prompts_snapshot = dict(system_prompts)
+
     async with httpx.AsyncClient(timeout=2.0) as client:
         for model_id, config in MODELS.items():
             try:
@@ -106,7 +266,8 @@ async def get_models():
                 "size": config["size"],
                 "format": config["format"],
                 "available": is_available,
-                "url": config["url"]
+                "url": config["url"],
+                "system_prompt": prompts_snapshot.get(model_id, "")
             })
     
     return {"models": models_status}
@@ -121,11 +282,17 @@ async def chat(request: ChatRequest):
     
     model_config = MODELS[request.model_id]
     api_url = f"{model_config['url']}/v1/chat/completions"
-    
+    async with _system_prompts_lock:
+        system_prompt = system_prompts.get(request.model_id, "")
+
     # Prepare the request payload
+    messages_payload = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+    if system_prompt.strip():
+        messages_payload.insert(0, {"role": "system", "content": system_prompt})
+
     payload = {
         "model": "default",  # Most endpoints accept any model name
-        "messages": [{"role": msg.role, "content": msg.content} for msg in request.messages],
+        "messages": messages_payload,
         "max_tokens": request.max_tokens,
         "temperature": request.temperature,
         "stream": False  # Non-streaming for benchmarking
@@ -209,7 +376,47 @@ async def chat(request: ChatRequest):
         except:
             pass
     
+    await _log_chat_interaction(request.model_id, payload["messages"], result)
+
     return benchmark_result
+
+
+@app.get("/api/models/{model_id}/system-prompt")
+async def get_model_system_prompt(model_id: str):
+    """Return the saved system prompt for a model"""
+    if model_id not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+
+    async with _system_prompts_lock:
+        prompt = system_prompts.get(model_id, "")
+
+    return {"model_id": model_id, "system_prompt": prompt}
+
+
+@app.put("/api/models/{model_id}/system-prompt")
+async def update_model_system_prompt(model_id: str, update: SystemPromptUpdate):
+    """Update and persist the system prompt for a model"""
+    if model_id not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+
+    prompt_text = update.prompt or ""
+
+    has_prompt = bool(prompt_text.strip())
+
+    async with _system_prompts_lock:
+        if has_prompt:
+            system_prompts[model_id] = prompt_text
+        else:
+            system_prompts.pop(model_id, None)
+
+        snapshot = dict(system_prompts)
+
+    if AsyncSessionLocal:
+        await _write_system_prompt_to_db(model_id, prompt_text if has_prompt else "")
+    else:
+        _save_system_prompts_to_file(snapshot)
+
+    return {"model_id": model_id, "system_prompt": snapshot.get(model_id, "")}
 
 
 @app.get("/api/health")
