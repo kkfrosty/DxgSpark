@@ -19,12 +19,21 @@ import psutil
 import subprocess
 import os
 from pathlib import Path
+import re
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.exc import SQLAlchemyError
+
+try:
+    from duckduckgo_search import DDGS
+    from bs4 import BeautifulSoup
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    print("Warning: RAG dependencies not installed. Install with: pip install duckduckgo-search beautifulsoup4")
 
 app = FastAPI(title="DxGChatBenchMark", version="1.0.0")
 
@@ -33,6 +42,10 @@ system_metrics_history = deque(maxlen=100)  # Last 100 system snapshots
 model_performance_history = deque(maxlen=50)  # Last 50 chat interactions
 active_websockets = []  # For real-time monitoring updates
 
+# Search cache to avoid rate limits (cache for 5 minutes)
+_search_cache: Dict[str, tuple[List[Dict[str, str]], float]] = {}
+_search_cache_ttl = 300  # 5 minutes
+
 # Model registry - add your models here
 MODELS = {
     "gpt-oss-120b": {
@@ -40,24 +53,52 @@ MODELS = {
         "url": "http://localhost:8000",
         "type": "llama.cpp",
         "size": "120B",
-        "format": "MXFP4"
+        "format": "MXFP4",
+        "supports_tools": False  # llama.cpp doesn't support native tool calling
     },
     "deepseek-nvfp4": {
         "name": "DeepSeek-R1-Distill-Llama-8B (NVFP4)",
         "url": "http://localhost:8002",
         "type": "TensorRT-LLM",
         "size": "8B",
-        "format": "NVFP4"
+        "format": "NVFP4",
+        "supports_tools": False
     },
     "llama-nim": {
         "name": "Llama 3.1 8B Instruct (NIM)",
         "url": "http://localhost:8003",
         "type": "NIM",
         "size": "8B",
-        "format": "FP16"
+        "format": "FP16",
+        "supports_tools": True
     },
     # Add more models as you deploy them
 }
+
+# Tool definition for web search
+SEARCH_TOOL_DEFINITION = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": "Search the internet for current information, news, stock prices, weather, or any real-time data. Use this when you need up-to-date information that you don't have in your training data.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query. Be specific and concise."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of search results to return (default: 5)",
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}
+
 BASE_DIR = Path(__file__).resolve().parent
 SYSTEM_PROMPTS_FILE = BASE_DIR / "system_prompts.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -193,6 +234,7 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = 500
     temperature: Optional[float] = 0.7
     stream: Optional[bool] = False
+    use_rag: Optional[bool] = False
 
 
 class BenchmarkResult(BaseModel):
@@ -218,6 +260,129 @@ class BenchmarkResult(BaseModel):
 class SystemPromptUpdate(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     prompt: str = ""
+
+
+async def _search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Search the web using multiple providers with fallbacks and caching."""
+    if not RAG_AVAILABLE:
+        return []
+    
+    # Add current date to query if it mentions "today", "current", "now", or "latest"
+    time_keywords = ["today", "current", "now", "latest", "recent"]
+    if any(keyword in query.lower() for keyword in time_keywords):
+        current_date = datetime.now().strftime("%B %d, %Y")
+        query = f"{query} {current_date}"
+    
+    # Check cache first
+    cache_key = f"{query}:{max_results}"
+    if cache_key in _search_cache:
+        cached_results, cached_time = _search_cache[cache_key]
+        if time.time() - cached_time < _search_cache_ttl:
+            print(f"Using cached search results for: {query}")
+            return cached_results
+    
+    results = []
+    
+    # Skip DuckDuckGo API (rate-limited) and go straight to HTML scraping fallback
+    # Try DuckDuckGo first with browser headers and delay
+    # try:
+    #     await asyncio.sleep(2)  # Add delay to avoid rate limiting
+    #     
+    #     with DDGS(headers={
+    #         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    #         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    #         "Accept-Language": "en-US,en;q=0.5",
+    #         "Referer": "https://www.google.com/"
+    #     }) as ddgs:
+    #         for result in ddgs.text(query, max_results=max_results, region='wt-wt', safesearch='off', backend='lite'):
+    #             results.append({
+    #                 "title": result.get("title", ""),
+    #                 "url": result.get("href", ""),
+    #                 "snippet": result.get("body", "")
+    #             })
+    #         
+    #         if results:
+    #             # Cache the results
+    #             _search_cache[cache_key] = (results, time.time())
+    #             return results
+    #             
+    # except Exception as e:
+    #     print(f"DuckDuckGo search error: {e}")
+    
+    # Fallback: Try direct HTTP requests to scrape search results
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
+            
+            # Try DuckDuckGo HTML
+            search_url = f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}"
+            response = await client.get(search_url, headers=headers)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                search_results = soup.find_all('div', class_='result')
+                
+                for idx, result in enumerate(search_results[:max_results]):
+                    title_elem = result.find('a', class_='result__a')
+                    snippet_elem = result.find('a', class_='result__snippet')
+                    
+                    if title_elem:
+                        results.append({
+                            "title": title_elem.get_text(strip=True),
+                            "url": title_elem.get('href', ''),
+                            "snippet": snippet_elem.get_text(strip=True) if snippet_elem else ""
+                        })
+                
+                if results:
+                    # Cache the results
+                    _search_cache[cache_key] = (results, time.time())
+                    return results
+                    
+    except Exception as e:
+        print(f"HTML scraping error: {e}")
+    
+    # Cache even empty results to avoid hammering failed searches
+    _search_cache[cache_key] = (results, time.time())
+    return results
+
+
+def _format_rag_context(search_results: List[Dict[str, str]]) -> str:
+    """Format search results into a context string for the LLM."""
+    if not search_results:
+        return ""
+    
+    current_datetime = datetime.now().strftime("%B %d, %Y at %I:%M %p %Z")
+    
+    context_parts = [
+        f"CURRENT DATE/TIME: {current_datetime}",
+        "",
+        "I have searched the web and found the following current information to answer your question:",
+        "",
+        "=== WEB SEARCH RESULTS ==="
+    ]
+    
+    for idx, result in enumerate(search_results, 1):
+        context_parts.append(f"\n[Source {idx}]")
+        context_parts.append(f"Title: {result['title']}")
+        context_parts.append(f"URL: {result['url']}")
+        context_parts.append(f"Content: {result['snippet']}")
+        context_parts.append("")
+    
+    context_parts.extend([
+        "=== END WEB SEARCH RESULTS ===",
+        "",
+        "IMPORTANT: Use ONLY the information from the web search results above to answer the user's question.",
+        "This information is CURRENT and retrieved from the internet specifically for this query.",
+        "Do NOT say you cannot access real-time data or browse the web - you already have the information above.",
+        "Cite the sources by number when providing your answer (e.g., 'According to Source 1...').",
+        ""
+    ])
+    
+    return "\n".join(context_parts)
 
 
 def _extract_stream_segments(delta: Dict[str, Any]) -> Dict[str, str]:
@@ -266,6 +431,49 @@ def _extract_stream_segments(delta: Dict[str, Any]) -> Dict[str, str]:
         "content": "".join(text_buffer),
         "reasoning": "".join(reasoning_buffer),
     }
+
+
+async def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Search the web using DuckDuckGo and return relevant results."""
+    if not RAG_AVAILABLE:
+        return []
+    
+    try:
+        results = []
+        with DDGS() as ddgs:
+            search_results = list(ddgs.text(query, max_results=max_results))
+            
+            for result in search_results:
+                results.append({
+                    "title": result.get("title", ""),
+                    "url": result.get("href", ""),
+                    "snippet": result.get("body", "")
+                })
+        
+        return results
+    except Exception as e:
+        print(f"Web search error: {e}")
+        return []
+
+
+def format_search_context(query: str, results: List[Dict[str, str]]) -> str:
+    """Format search results into a context string for the LLM."""
+    if not results:
+        return ""
+    
+    context = f"# Web Search Results for: {query}\n\n"
+    context += "I found the following relevant information from the internet:\n\n"
+    
+    for i, result in enumerate(results, 1):
+        context += f"## Source {i}: {result['title']}\n"
+        context += f"URL: {result['url']}\n"
+        context += f"{result['snippet']}\n\n"
+    
+    context += "---\n\n"
+    context += "Please use the above information to help answer the user's question. "
+    context += "Cite sources when relevant.\n\n"
+    
+    return context
 
 
 @app.on_event("startup")
@@ -455,8 +663,40 @@ async def chat_stream(request: ChatRequest):
         system_prompt = system_prompts.get(request.model_id, "")
 
     messages_payload = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+    
+    # RAG: If enabled, search the web and add context
+    search_results = []
+    if request.use_rag and RAG_AVAILABLE and len(messages_payload) > 0:
+        # Get the last user message as the search query
+        last_user_message = None
+        for msg in reversed(messages_payload):
+            if msg["role"] == "user":
+                last_user_message = msg["content"]
+                break
+        
+        if last_user_message:
+            search_results = await _search_web(last_user_message, max_results=5)
+            if search_results:
+                rag_context = _format_rag_context(search_results)
+                # Prepend RAG context directly to the user's message
+                for msg in reversed(messages_payload):
+                    if msg["role"] == "user":
+                        msg["content"] = f"{rag_context}\n\n---\n\nUser Question: {msg['content']}\n\nPlease answer using the web search results provided above."
+                        break
+    
     if system_prompt.strip():
         messages_payload.insert(0, {"role": "system", "content": system_prompt})
+    
+    # Add RAG capability instruction if enabled
+    if request.use_rag and RAG_AVAILABLE:
+        rag_system_prompt = (
+            "You are an AI assistant with access to real-time web search results. "
+            "When search results are provided in the conversation, you MUST use them to answer the user's questions. "
+            "The search results contain current, up-to-date information. "
+            "Do NOT say you cannot access real-time data - you have it in the search results. "
+            "Always cite the sources when using information from search results."
+        )
+        messages_payload.insert(0, {"role": "system", "content": rag_system_prompt})
 
     payload = {
         "model": "default",
@@ -475,6 +715,10 @@ async def chat_stream(request: ChatRequest):
         timings_payload: Dict[str, Any] = {}
         content_token_count: int = 0
         reasoning_token_count: int = 0
+        
+        # Notify client if RAG was used
+        if search_results:
+            yield _format_sse("rag_context", {"enabled": True, "sources": len(search_results), "results": search_results})
 
         yield _format_sse("status", {"state": "started"})
 

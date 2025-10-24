@@ -365,6 +365,79 @@
             display: none;
         }
 
+        .sources-block {
+            margin-top: 12px;
+            margin-right: 50px;
+            padding: 12px 16px;
+            background: #e7f3ff;
+            border-left: 4px solid #4c9aff;
+            border-radius: 10px;
+            color: #0052cc;
+            font-size: 0.92em;
+        }
+
+        .sources-title {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .sources-title:hover {
+            color: #0065ff;
+        }
+
+        .sources-toggle {
+            font-size: 0.8em;
+            transition: transform 0.2s;
+        }
+
+        .sources-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .sources-list {
+            margin-top: 10px;
+        }
+
+        .sources-list.collapsed {
+            display: none;
+        }
+
+        .source-item {
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #fff;
+            border-radius: 6px;
+            border: 1px solid #d0e7ff;
+        }
+
+        .source-title {
+            font-weight: 600;
+            color: #0052cc;
+            margin-bottom: 4px;
+        }
+
+        .source-url {
+            font-size: 0.85em;
+            color: #0065ff;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .source-url:hover {
+            text-decoration: underline;
+        }
+
+        .source-snippet {
+            margin-top: 6px;
+            font-size: 0.9em;
+            color: #333;
+            line-height: 1.4;
+        }
+
         .benchmark-info {
             margin-top: 10px;
             padding: 12px;
@@ -842,6 +915,15 @@
                         <label for="temperature">Temperature:</label>
                         <input type="number" id="temperature" value="0.7" min="0" max="2" step="0.1">
                     </div>
+                    <div class="setting-row">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="use-rag" style="width: auto; cursor: pointer;">
+                            <span>🌐 Enable Web Search (RAG)</span>
+                        </label>
+                        <small style="color: #6c757d; font-size: 0.85em; margin-top: 4px; display: block;">
+                            Search the internet for relevant information before responding
+                        </small>
+                    </div>
                     <button class="clear-button" onclick="clearChat()">Clear Chat</button>
                 </div>
 
@@ -1102,6 +1184,7 @@
             try {
                 const maxTokens = parseInt(document.getElementById('max-tokens').value, 10);
                 const temperature = parseFloat(document.getElementById('temperature').value);
+                const useRag = document.getElementById('use-rag').checked;
 
                 const response = await fetch('/api/chat/stream', {
                     method: 'POST',
@@ -1111,7 +1194,8 @@
                         messages: conversationHistory,
                         max_tokens: maxTokens,
                         temperature: temperature,
-                        stream: true
+                        stream: true,
+                        use_rag: useRag
                     })
                 });
 
@@ -1157,7 +1241,12 @@
 
                         const { event: eventType, data } = parsed;
 
-                        if (eventType === 'token') {
+                        if (eventType === 'rag_context') {
+                            if (data && data.enabled) {
+                                console.log(`RAG enabled: ${data.sources} sources found`, data.results);
+                                streamingMessage.showRagIndicator(data.sources, data.results || []);
+                            }
+                        } else if (eventType === 'token') {
                             const fragment = data && data.text ? data.text : '';
                             if (fragment) {
                                 streamingMessage.appendToken(fragment);
@@ -1354,6 +1443,26 @@
             reasoningBlock.appendChild(reasoningTitle);
             reasoningBlock.appendChild(reasoningText);
 
+            const sourcesBlock = document.createElement('div');
+            sourcesBlock.className = 'sources-block hidden';
+
+            const sourcesTitle = document.createElement('div');
+            sourcesTitle.className = 'sources-title';
+            sourcesTitle.innerHTML = '<span class="sources-toggle">▼</span> 🌐 Sources';
+
+            const sourcesList = document.createElement('div');
+            sourcesList.className = 'sources-list';
+
+            // Toggle collapse on click
+            sourcesTitle.addEventListener('click', () => {
+                const toggle = sourcesTitle.querySelector('.sources-toggle');
+                const isCollapsed = sourcesList.classList.toggle('collapsed');
+                toggle.classList.toggle('collapsed', isCollapsed);
+            });
+
+            sourcesBlock.appendChild(sourcesTitle);
+            sourcesBlock.appendChild(sourcesList);
+
             const header = document.createElement('div');
             header.className = 'message-header';
             header.textContent = '🤖 Assistant';
@@ -1375,6 +1484,7 @@
             metricsHolder.className = 'streaming-metrics';
 
             container.appendChild(reasoningBlock);
+            container.appendChild(sourcesBlock);
             container.appendChild(header);
             container.appendChild(content);
             container.appendChild(metricsHolder);
@@ -1401,6 +1511,31 @@
             };
 
             return {
+                showRagIndicator(sources, results) {
+                    const ragBadge = document.createElement('div');
+                    ragBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e7f3ff; border: 1px solid #4c9aff; border-radius: 4px; font-size: 0.85em; color: #0052cc; margin-bottom: 8px;';
+                    ragBadge.innerHTML = `🌐 <strong>Web Search:</strong> ${sources} source${sources > 1 ? 's' : ''} found`;
+                    content.insertBefore(ragBadge, indicator);
+                    
+                    // Populate sources
+                    if (results && results.length > 0) {
+                        sourcesList.innerHTML = '';
+                        results.forEach((result, idx) => {
+                            const sourceItem = document.createElement('div');
+                            sourceItem.className = 'source-item';
+                            sourceItem.innerHTML = `
+                                <div class="source-title">[${idx + 1}] ${escapeHtml(result.title)}</div>
+                                <a href="${escapeHtml(result.url)}" target="_blank" rel="noopener noreferrer" class="source-url">${escapeHtml(result.url)}</a>
+                                <div class="source-snippet">${escapeHtml(result.snippet)}</div>
+                            `;
+                            sourcesList.appendChild(sourceItem);
+                        });
+                        sourcesBlock.classList.remove('hidden');
+                        // Auto-collapse sources initially
+                        sourcesList.classList.add('collapsed');
+                        sourcesTitle.querySelector('.sources-toggle').classList.add('collapsed');
+                    }
+                },
                 appendToken(fragment) {
                     if (indicator && !indicator.classList.contains('hidden')) {
                         const labelSpan = indicator.querySelector('span:last-child');
