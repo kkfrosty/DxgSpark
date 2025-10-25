@@ -30,10 +30,11 @@ from sqlalchemy.exc import SQLAlchemyError
 try:
     from duckduckgo_search import DDGS
     from bs4 import BeautifulSoup
+    from playwright.async_api import async_playwright
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
-    print("Warning: RAG dependencies not installed. Install with: pip install duckduckgo-search beautifulsoup4")
+    print("Warning: RAG dependencies not installed. Install with: pip install duckduckgo-search beautifulsoup4 playwright")
 
 app = FastAPI(title="DxGChatBenchMark", version="1.0.0")
 
@@ -262,92 +263,106 @@ class SystemPromptUpdate(BaseModel):
     prompt: str = ""
 
 
-async def _search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """Search the web using multiple providers with fallbacks and caching."""
-    if not RAG_AVAILABLE:
-        return []
-    
-    # Add current date to query if it mentions "today", "current", "now", or "latest"
-    time_keywords = ["today", "current", "now", "latest", "recent"]
-    if any(keyword in query.lower() for keyword in time_keywords):
-        current_date = datetime.now().strftime("%B %d, %Y")
-        query = f"{query} {current_date}"
-    
-    # Check cache first
-    cache_key = f"{query}:{max_results}"
-    if cache_key in _search_cache:
-        cached_results, cached_time = _search_cache[cache_key]
-        if time.time() - cached_time < _search_cache_ttl:
-            print(f"Using cached search results for: {query}")
-            return cached_results
-    
+async def _search_web(query: str, num_results: int = 5) -> tuple[List[Dict[str, str]], List[str]]:
+    """Search the web using a real browser via Playwright"""
     results = []
+    step_logs = []
     
-    # Skip DuckDuckGo API (rate-limited) and go straight to HTML scraping fallback
-    # Try DuckDuckGo first with browser headers and delay
-    # try:
-    #     await asyncio.sleep(2)  # Add delay to avoid rate limiting
-    #     
-    #     with DDGS(headers={
-    #         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    #         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    #         "Accept-Language": "en-US,en;q=0.5",
-    #         "Referer": "https://www.google.com/"
-    #     }) as ddgs:
-    #         for result in ddgs.text(query, max_results=max_results, region='wt-wt', safesearch='off', backend='lite'):
-    #             results.append({
-    #                 "title": result.get("title", ""),
-    #                 "url": result.get("href", ""),
-    #                 "snippet": result.get("body", "")
-    #             })
-    #         
-    #         if results:
-    #             # Cache the results
-    #             _search_cache[cache_key] = (results, time.time())
-    #             return results
-    #             
-    # except Exception as e:
-    #     print(f"DuckDuckGo search error: {e}")
+    step_logs.append(f"Searching web for: {query}...")
     
-    # Fallback: Try direct HTTP requests to scrape search results
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-            }
+        from playwright.async_api import async_playwright
+        import os
+        
+        # Set Playwright browser path
+        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/root/.cache/ms-playwright'
+        
+        step_logs.append("Launching real browser...")
+        
+        async with async_playwright() as p:
+            # Launch browser
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox']
+            )
             
-            # Try DuckDuckGo HTML
-            search_url = f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}"
-            response = await client.get(search_url, headers=headers)
+            page = await browser.new_page()
             
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                search_results = soup.find_all('div', class_='result')
-                
-                for idx, result in enumerate(search_results[:max_results]):
-                    title_elem = result.find('a', class_='result__a')
-                    snippet_elem = result.find('a', class_='result__snippet')
+            # Go to Google and search like a real user would
+            search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+            step_logs.append(f"Navigating to Google...")
+            
+            await page.goto(search_url, wait_until='networkidle', timeout=30000)
+            
+            # Wait a moment for results to render
+            await asyncio.sleep(1)
+            
+            step_logs.append("Extracting search results...")
+            
+            # Get the page content
+            html = await page.content()
+            
+            await browser.close()
+            
+            # Parse with BeautifulSoup
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Find Google search result divs
+            search_divs = soup.find_all('div', class_='g')
+            
+            step_logs.append(f"Found {len(search_divs)} result containers")
+            
+            for div in search_divs[:num_results]:
+                # Get title
+                title_elem = div.find('h3')
+                if not title_elem:
+                    continue
                     
-                    if title_elem:
-                        results.append({
-                            "title": title_elem.get_text(strip=True),
-                            "url": title_elem.get('href', ''),
-                            "snippet": snippet_elem.get_text(strip=True) if snippet_elem else ""
-                        })
+                title = title_elem.get_text(strip=True)
                 
-                if results:
-                    # Cache the results
-                    _search_cache[cache_key] = (results, time.time())
-                    return results
+                # Get URL from parent anchor
+                link_elem = div.find('a', href=True)
+                if not link_elem:
+                    continue
                     
+                url = link_elem.get('href', '')
+                
+                # Skip non-result links
+                if not url or url.startswith('/search') or not url.startswith('http'):
+                    continue
+                
+                # Get snippet
+                snippet = ""
+                snippet_containers = div.find_all(['span', 'div'])
+                for container in snippet_containers:
+                    text = container.get_text(strip=True)
+                    if len(text) > 50 and len(text) < 500:  # Reasonable snippet length
+                        snippet = text
+                        break
+                
+                if title and url:
+                    results.append({
+                        'title': title,
+                        'url': url,
+                        'snippet': snippet[:300]
+                    })
+                    step_logs.append(f"  ✓ {title[:50]}...")
+            
+            if results:
+                step_logs.append(f"✓ Found {len(results)} results")
+            else:
+                step_logs.append("✗ No results found")
+                
     except Exception as e:
-        print(f"HTML scraping error: {e}")
+        step_logs.append(f"✗ Error: {str(e)[:100]}")
+        print(f"Search error: {e}")
+        import traceback
+        print(traceback.format_exc())
     
-    # Cache even empty results to avoid hammering failed searches
-    _search_cache[cache_key] = (results, time.time())
-    return results
+    if not results:
+        step_logs.append("No web search results available")
+    
+    return results, step_logs
 
 
 def _format_rag_context(search_results: List[Dict[str, str]]) -> str:
@@ -360,25 +375,34 @@ def _format_rag_context(search_results: List[Dict[str, str]]) -> str:
     context_parts = [
         f"CURRENT DATE/TIME: {current_datetime}",
         "",
-        "I have searched the web and found the following current information to answer your question:",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "🌐 WEB SEARCH COMPLETED - USE THIS INFORMATION",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "",
-        "=== WEB SEARCH RESULTS ==="
+        "The web search has ALREADY been performed for you. Below are the current results from the internet.",
+        "You DO NOT need to call any search function or tool.",
+        "You MUST use this information to answer the question.",
+        ""
     ]
     
     for idx, result in enumerate(search_results, 1):
-        context_parts.append(f"\n[Source {idx}]")
-        context_parts.append(f"Title: {result['title']}")
-        context_parts.append(f"URL: {result['url']}")
-        context_parts.append(f"Content: {result['snippet']}")
+        context_parts.append(f"━━━ SOURCE {idx} ━━━")
+        context_parts.append(f"📰 Title: {result['title']}")
+        context_parts.append(f"🔗 URL: {result['url']}")
+        context_parts.append(f"📄 Content: {result['snippet']}")
         context_parts.append("")
     
     context_parts.extend([
-        "=== END WEB SEARCH RESULTS ===",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "",
-        "IMPORTANT: Use ONLY the information from the web search results above to answer the user's question.",
-        "This information is CURRENT and retrieved from the internet specifically for this query.",
-        "Do NOT say you cannot access real-time data or browse the web - you already have the information above.",
-        "Cite the sources by number when providing your answer (e.g., 'According to Source 1...').",
+        "✅ INSTRUCTIONS:",
+        "1. The search has ALREADY been completed - DO NOT output search function calls",
+        "2. The information above is CURRENT as of " + current_datetime,
+        "3. You HAVE access to real-time data through the search results above",
+        "4. Provide a detailed answer using the information from these sources",
+        "5. Cite sources by number (e.g., 'According to Source 1...')",
+        "",
+        "Now answer the user's question using the search results above:",
         ""
     ])
     
@@ -649,6 +673,14 @@ async def chat(request: ChatRequest):
     return benchmark_result
 
 
+@app.post("/api/rag/clear-cache")
+async def clear_rag_cache():
+    """Clear the RAG search cache"""
+    global _search_cache
+    _search_cache.clear()
+    return {"status": "cache_cleared", "message": "RAG search cache has been cleared"}
+
+
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Stream chat completions and metrics to the client via SSE."""
@@ -664,8 +696,11 @@ async def chat_stream(request: ChatRequest):
 
     messages_payload = [{"role": msg.role, "content": msg.content} for msg in request.messages]
     
+    print(f"DEBUG: use_rag = {request.use_rag}, RAG_AVAILABLE = {RAG_AVAILABLE}")
+    
     # RAG: If enabled, search the web and add context
     search_results = []
+    search_step_logs = []
     if request.use_rag and RAG_AVAILABLE and len(messages_payload) > 0:
         # Get the last user message as the search query
         last_user_message = None
@@ -675,14 +710,24 @@ async def chat_stream(request: ChatRequest):
                 break
         
         if last_user_message:
-            search_results = await _search_web(last_user_message, max_results=5)
+            print(f"RAG SEARCH STARTING for query: {last_user_message[:100]}...")
+            search_results, search_step_logs = await _search_web(last_user_message, num_results=5)
+            print(f"RAG SEARCH COMPLETED: Got {len(search_results)} results")
             if search_results:
+                print(f"RAG SEARCH RESULTS: {[r['title'] for r in search_results]}")
                 rag_context = _format_rag_context(search_results)
                 # Prepend RAG context directly to the user's message
                 for msg in reversed(messages_payload):
                     if msg["role"] == "user":
                         msg["content"] = f"{rag_context}\n\n---\n\nUser Question: {msg['content']}\n\nPlease answer using the web search results provided above."
+                        print(f"RAG CONTEXT ADDED to user message")
                         break
+            else:
+                print("RAG SEARCH RETURNED NO RESULTS")
+        else:
+            print("RAG: No user message found")
+    else:
+        print(f"RAG SKIPPED: use_rag={request.use_rag}, RAG_AVAILABLE={RAG_AVAILABLE}, messages={len(messages_payload)}")
     
     if system_prompt.strip():
         messages_payload.insert(0, {"role": "system", "content": system_prompt})
@@ -716,17 +761,40 @@ async def chat_stream(request: ChatRequest):
         content_token_count: int = 0
         reasoning_token_count: int = 0
         
+        # Emit initial step
+        yield _format_sse("step", {"message": f"Preparing request to {model_config['name']}", "type": "info"})
+        
+        # Emit search step logs
+        for log in search_step_logs:
+            # Determine step type based on log content
+            step_type = "info"
+            if "✓" in log or "Found" in log or "cached" in log.lower():
+                step_type = "success"
+            elif "✗" in log or "error" in log.lower() or "failed" in log.lower():
+                step_type = "error"
+            elif "⚠" in log or "warning" in log.lower() or "No results" in log:
+                step_type = "warning"
+            
+            yield _format_sse("step", {"message": log, "type": step_type})
+        
         # Notify client if RAG was used
         if search_results:
+            yield _format_sse("step", {"message": f"Using {len(search_results)} web sources for context", "type": "success"})
             yield _format_sse("rag_context", {"enabled": True, "sources": len(search_results), "results": search_results})
+        else:
+            if request.use_rag and RAG_AVAILABLE:
+                yield _format_sse("step", {"message": "No web search results available", "type": "warning"})
 
         yield _format_sse("status", {"state": "started"})
+        yield _format_sse("step", {"message": "Sending request to model API", "type": "info"})
 
         try:
             timeout = httpx.Timeout(120.0, read=None)
             async with httpx.AsyncClient(timeout=timeout) as client:
+                yield _format_sse("step", {"message": "Waiting for model response...", "type": "info"})
                 async with client.stream("POST", api_url, json=payload) as upstream:
                     upstream.raise_for_status()
+                    yield _format_sse("step", {"message": "Model connection established, streaming response", "type": "success"})
                     async for raw_line in upstream.aiter_lines():
                         if raw_line is None:
                             continue
@@ -770,11 +838,15 @@ async def chat_stream(request: ChatRequest):
                                 yield _format_sse("reasoning", {"text": segments["reasoning"]})
 
         except httpx.HTTPError as exc:
+            yield _format_sse("step", {"message": f"HTTP error: {str(exc)}", "type": "error"})
             yield _format_sse("error", {"message": f"Model API error: {str(exc)}"})
             return
         except Exception as exc:
+            yield _format_sse("step", {"message": f"Unexpected error: {str(exc)}", "type": "error"})
             yield _format_sse("error", {"message": str(exc)})
             return
+
+        yield _format_sse("step", {"message": "Processing performance metrics", "type": "info"})
 
         end_time = time.perf_counter()
         if first_token_time is None:
@@ -933,30 +1005,33 @@ async def get_system_metrics():
         cpu_percent = psutil.cpu_percent(interval=0.1)
         ram = psutil.virtual_memory()
         
-        # GPU metrics using nvidia-smi
+        # GPU metrics using nvidia-smi (if available)
         gpu_metrics = []
         try:
-            result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw', 
-                 '--format=csv,noheader,nounits'],
-                capture_output=True, text=True, timeout=2
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if line:
-                        parts = [p.strip() for p in line.split(',')]
-                        if len(parts) >= 7:
-                            gpu_metrics.append({
-                                "index": int(parts[0]),
-                                "name": parts[1],
-                                "utilization": float(parts[2]) if parts[2] != '[N/A]' else 0,
-                                "memory_used_mb": float(parts[3]) if parts[3] != '[N/A]' else 0,
-                                "memory_total_mb": float(parts[4]) if parts[4] != '[N/A]' else 0,
-                                "temperature": float(parts[5]) if parts[5] != '[N/A]' else 0,
-                                "power_draw": float(parts[6]) if parts[6] != '[N/A]' else 0
-                            })
-        except Exception as e:
-            print(f"GPU metrics error: {e}")
+            # Check if nvidia-smi exists before calling it
+            if os.path.exists('/usr/bin/nvidia-smi') or os.path.exists('/usr/local/bin/nvidia-smi'):
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw', 
+                     '--format=csv,noheader,nounits'],
+                    capture_output=True, text=True, timeout=2
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split('\n'):
+                        if line:
+                            parts = [p.strip() for p in line.split(',')]
+                            if len(parts) >= 7:
+                                gpu_metrics.append({
+                                    "index": int(parts[0]),
+                                    "name": parts[1],
+                                    "utilization": float(parts[2]) if parts[2] != '[N/A]' else 0,
+                                    "memory_used_mb": float(parts[3]) if parts[3] != '[N/A]' else 0,
+                                    "memory_total_mb": float(parts[4]) if parts[4] != '[N/A]' else 0,
+                                    "temperature": float(parts[5]) if parts[5] != '[N/A]' else 0,
+                                    "power_draw": float(parts[6]) if parts[6] != '[N/A]' else 0
+                                })
+        except Exception:
+            # Silently skip GPU metrics if not available
+            pass
         
         metrics = {
             "timestamp": datetime.now().isoformat(),

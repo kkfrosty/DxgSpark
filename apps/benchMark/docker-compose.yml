@@ -1,0 +1,43 @@
+services:
+  benchmark:
+    build: .
+    container_name: dgx-chat-benchmark
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount code for hot-reload during development
+      - .:/app
+      # Persist SQLite database
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Uncomment and adjust for PostgreSQL (requires postgresql+asyncpg:// prefix)
+      # - DATABASE_URL=postgresql+asyncpg://benchmark:benchmark_pass@postgres:5432/benchmark_db
+    restart: unless-stopped
+    # Use host network to access local models (llama.cpp on port 8000)
+    network_mode: host
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: dgx-chat-benchmark-db
+    environment:
+      - POSTGRES_USER=benchmark
+      - POSTGRES_PASSWORD=benchmark_pass
+      - POSTGRES_DB=benchmark_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - benchmark-network
+    restart: unless-stopped
+    # Comment out if using network_mode: host above
+    profiles:
+      - with-postgres
+
+networks:
+  benchmark-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

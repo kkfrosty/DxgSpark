@@ -365,6 +365,117 @@
             display: none;
         }
 
+        .response-tabs {
+            display: flex;
+            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 12px;
+            gap: 4px;
+        }
+
+        .response-tab {
+            padding: 8px 16px;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-weight: 500;
+            color: #6c757d;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .response-tab:hover {
+            color: #495057;
+            background: #f8f9fa;
+        }
+
+        .response-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .steps-log {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .step-entry {
+            padding: 4px 0;
+            border-left: 3px solid #dee2e6;
+            padding-left: 8px;
+            margin-bottom: 4px;
+        }
+
+        .step-entry.info {
+            border-left-color: #667eea;
+            color: #495057;
+        }
+
+        .step-entry.success {
+            border-left-color: #28a745;
+            color: #155724;
+        }
+
+        .step-entry.warning {
+            border-left-color: #ffc107;
+            color: #856404;
+        }
+
+        .step-entry.error {
+            border-left-color: #dc3545;
+            color: #721c24;
+        }
+
+        .sources-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .source-item {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .source-title {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 6px;
+        }
+
+        .source-snippet {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .source-link {
+            font-size: 0.85em;
+            color: #667eea;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .source-link:hover {
+            text-decoration: underline;
+        }
+
         .sources-block {
             margin-top: 12px;
             margin-right: 50px;
@@ -909,7 +1020,7 @@
                     <h3>⚙️ Generation Settings</h3>
                     <div class="setting-row">
                         <label for="max-tokens">Max Tokens:</label>
-                        <input type="number" id="max-tokens" value="500" min="1" max="4096">
+                        <input type="number" id="max-tokens" value="2000" min="1" max="4096">
                     </div>
                     <div class="setting-row">
                         <label for="temperature">Temperature:</label>
@@ -917,7 +1028,7 @@
                     </div>
                     <div class="setting-row">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="use-rag" style="width: auto; cursor: pointer;">
+                            <input type="checkbox" id="use-rag" checked style="width: auto; cursor: pointer;">
                             <span>🌐 Enable Web Search (RAG)</span>
                         </label>
                         <small style="color: #6c757d; font-size: 0.85em; margin-top: 4px; display: block;">
@@ -1246,6 +1357,12 @@
                                 console.log(`RAG enabled: ${data.sources} sources found`, data.results);
                                 streamingMessage.showRagIndicator(data.sources, data.results || []);
                             }
+                        } else if (eventType === 'step') {
+                            const message = data && data.message ? data.message : '';
+                            const type = data && data.type ? data.type : 'info';
+                            if (message) {
+                                streamingMessage.addStep(message, type);
+                            }
                         } else if (eventType === 'token') {
                             const fragment = data && data.text ? data.text : '';
                             if (fragment) {
@@ -1443,32 +1560,34 @@
             reasoningBlock.appendChild(reasoningTitle);
             reasoningBlock.appendChild(reasoningText);
 
-            const sourcesBlock = document.createElement('div');
-            sourcesBlock.className = 'sources-block hidden';
-
-            const sourcesTitle = document.createElement('div');
-            sourcesTitle.className = 'sources-title';
-            sourcesTitle.innerHTML = '<span class="sources-toggle">▼</span> 🌐 Sources';
-
-            const sourcesList = document.createElement('div');
-            sourcesList.className = 'sources-list';
-
-            // Toggle collapse on click
-            sourcesTitle.addEventListener('click', () => {
-                const toggle = sourcesTitle.querySelector('.sources-toggle');
-                const isCollapsed = sourcesList.classList.toggle('collapsed');
-                toggle.classList.toggle('collapsed', isCollapsed);
-            });
-
-            sourcesBlock.appendChild(sourcesTitle);
-            sourcesBlock.appendChild(sourcesList);
-
             const header = document.createElement('div');
             header.className = 'message-header';
             header.textContent = '🤖 Assistant';
 
-            const content = document.createElement('div');
-            content.className = 'message-content';
+            // Create tabs navigation
+            const tabsContainer = document.createElement('div');
+            tabsContainer.className = 'response-tabs';
+
+            const answerTab = document.createElement('button');
+            answerTab.className = 'response-tab active';
+            answerTab.textContent = 'Answer';
+
+            const sourcesTab = document.createElement('button');
+            sourcesTab.className = 'response-tab';
+            sourcesTab.textContent = 'Sources';
+
+            const stepsTab = document.createElement('button');
+            stepsTab.className = 'response-tab';
+            stepsTab.textContent = 'Steps';
+
+            tabsContainer.appendChild(answerTab);
+            tabsContainer.appendChild(sourcesTab);
+            tabsContainer.appendChild(stepsTab);
+
+            // Create tab content containers
+            const answerContent = document.createElement('div');
+            answerContent.className = 'tab-content active';
+            answerContent.id = 'answer-content';
 
             const indicator = document.createElement('div');
             indicator.className = 'streaming-indicator';
@@ -1477,16 +1596,30 @@
             const textWrapper = document.createElement('div');
             textWrapper.className = 'streaming-text';
 
-            content.appendChild(indicator);
-            content.appendChild(textWrapper);
+            answerContent.appendChild(indicator);
+            answerContent.appendChild(textWrapper);
+
+            const sourcesContent = document.createElement('div');
+            sourcesContent.className = 'tab-content';
+            sourcesContent.id = 'sources-content';
+            sourcesContent.innerHTML = '<div class="sources-list"><p style="color: #6c757d; padding: 20px; text-align: center;">No sources available for this response.</p></div>';
+
+            const stepsContent = document.createElement('div');
+            stepsContent.className = 'tab-content';
+            stepsContent.id = 'steps-content';
+            const stepsLog = document.createElement('div');
+            stepsLog.className = 'steps-log';
+            stepsContent.appendChild(stepsLog);
 
             const metricsHolder = document.createElement('div');
             metricsHolder.className = 'streaming-metrics';
 
             container.appendChild(reasoningBlock);
-            container.appendChild(sourcesBlock);
             container.appendChild(header);
-            container.appendChild(content);
+            container.appendChild(tabsContainer);
+            container.appendChild(answerContent);
+            container.appendChild(sourcesContent);
+            container.appendChild(stepsContent);
             container.appendChild(metricsHolder);
 
             messagesContainer.appendChild(container);
@@ -1494,6 +1627,29 @@
 
             let contentBuffer = '';
             let reasoningBuffer = '';
+
+            // Tab switching logic
+            const switchTab = (tabName) => {
+                const tabs = [answerTab, sourcesTab, stepsTab];
+                const contents = [answerContent, sourcesContent, stepsContent];
+                const tabNames = ['answer', 'sources', 'steps'];
+                const index = tabNames.indexOf(tabName);
+                
+                tabs.forEach((tab, i) => {
+                    if (i === index) {
+                        tab.classList.add('active');
+                        contents[i].classList.add('active');
+                    } else {
+                        tab.classList.remove('active');
+                        contents[i].classList.remove('active');
+                    }
+                });
+                scrollMessagesToBottom();
+            };
+
+            answerTab.onclick = () => switchTab('answer');
+            sourcesTab.onclick = () => switchTab('sources');
+            stepsTab.onclick = () => switchTab('steps');
 
             const updateContent = () => {
                 textWrapper.innerHTML = renderMarkdown(contentBuffer);
@@ -1511,29 +1667,37 @@
             };
 
             return {
+                addStep(message, type = 'info') {
+                    const stepEntry = document.createElement('div');
+                    stepEntry.className = `step-entry ${type}`;
+                    const timestamp = new Date().toLocaleTimeString();
+                    stepEntry.textContent = `[${timestamp}] ${message}`;
+                    stepsLog.appendChild(stepEntry);
+                    scrollMessagesToBottom();
+                },
                 showRagIndicator(sources, results) {
                     const ragBadge = document.createElement('div');
                     ragBadge.style.cssText = 'display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e7f3ff; border: 1px solid #4c9aff; border-radius: 4px; font-size: 0.85em; color: #0052cc; margin-bottom: 8px;';
                     ragBadge.innerHTML = `🌐 <strong>Web Search:</strong> ${sources} source${sources > 1 ? 's' : ''} found`;
-                    content.insertBefore(ragBadge, indicator);
+                    answerContent.insertBefore(ragBadge, indicator);
                     
-                    // Populate sources
+                    // Populate sources tab
                     if (results && results.length > 0) {
-                        sourcesList.innerHTML = '';
+                        const sourcesList = document.createElement('div');
+                        sourcesList.className = 'sources-list';
                         results.forEach((result, idx) => {
                             const sourceItem = document.createElement('div');
                             sourceItem.className = 'source-item';
                             sourceItem.innerHTML = `
-                                <div class="source-title">[${idx + 1}] ${escapeHtml(result.title)}</div>
-                                <a href="${escapeHtml(result.url)}" target="_blank" rel="noopener noreferrer" class="source-url">${escapeHtml(result.url)}</a>
+                                <div class="source-title">${idx + 1}. ${escapeHtml(result.title)}</div>
                                 <div class="source-snippet">${escapeHtml(result.snippet)}</div>
+                                <a href="${escapeHtml(result.url)}" target="_blank" rel="noopener noreferrer" class="source-link">${escapeHtml(result.url)}</a>
                             `;
                             sourcesList.appendChild(sourceItem);
                         });
-                        sourcesBlock.classList.remove('hidden');
-                        // Auto-collapse sources initially
-                        sourcesList.classList.add('collapsed');
-                        sourcesTitle.querySelector('.sources-toggle').classList.add('collapsed');
+                        sourcesContent.innerHTML = '';
+                        sourcesContent.appendChild(sourcesList);
+                        this.addStep(`Found ${sources} web source${sources > 1 ? 's' : ''}`, 'success');
                     }
                 },
                 appendToken(fragment) {
@@ -1576,11 +1740,14 @@
                     if (benchmark) {
                         metricsHolder.innerHTML = renderBenchmarkStats(benchmark);
                     }
+                    
+                    this.addStep('Response complete', 'success');
                 },
                 showError(message) {
                     container.classList.remove('streaming');
                     indicator.classList.remove('hidden');
                     indicator.innerHTML = `❌ ${escapeHtml(message)}`;
+                    this.addStep(`Error: ${message}`, 'error');
                 }
             };
         }
