@@ -1,9 +1,39 @@
 services:
+  # SearxNG - Self-hosted metasearch engine for RAG  
+  searxng:
+    image: searxng/searxng:latest
+    container_name: dgx-searxng
+    ports:
+      - "0.0.0.0:8888:8080"  # Map host 8888 to container 8080 (SearxNG's default port)
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://192.168.2.180:8888/
+    restart: unless-stopped
+    depends_on:
+      - redis
+    networks:
+      benchmark-network:
+        ipv4_address: 172.20.0.10
+
+  # Redis - Cache for SearxNG
+  redis:
+    image: redis:7-alpine
+    container_name: dgx-searxng-redis
+    command: redis-server --save 30 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      benchmark-network:
+        ipv4_address: 172.20.0.11
+
+  # Main benchmark application
   benchmark:
     build: .
     container_name: dgx-chat-benchmark
     ports:
-      - "8080:8080"
+      - "0.0.0.0:8080:8080"
     volumes:
       # Mount code for hot-reload during development
       - .:/app
@@ -11,11 +41,19 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+      - SEARXNG_URL=http://searxng:8080  # SearxNG listens on port 8080 inside container
+      - HOST_IP=192.168.2.180
       # Uncomment and adjust for PostgreSQL (requires postgresql+asyncpg:// prefix)
       # - DATABASE_URL=postgresql+asyncpg://benchmark:benchmark_pass@postgres:5432/benchmark_db
     restart: unless-stopped
-    # Use host network to access local models (llama.cpp on port 8000)
-    network_mode: host
+    depends_on:
+      - searxng
+    # Using bridge network to communicate with SearxNG
+    # Local LLM models should be accessible on host IP (192.168.2.180:8000)
+    networks:
+      - benchmark-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   postgres:
     image: postgres:16-alpine
@@ -38,6 +76,10 @@ services:
 networks:
   benchmark-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
 volumes:
   postgres-data:
+  redis-data:

@@ -28,13 +28,11 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.exc import SQLAlchemyError
 
 try:
-    from duckduckgo_search import DDGS
     from bs4 import BeautifulSoup
-    from playwright.async_api import async_playwright
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
-    print("Warning: RAG dependencies not installed. Install with: pip install duckduckgo-search beautifulsoup4 playwright")
+    print("Warning: RAG dependencies not installed. Install with: pip install beautifulsoup4")
 
 app = FastAPI(title="DxGChatBenchMark", version="1.0.0")
 
@@ -47,11 +45,17 @@ active_websockets = []  # For real-time monitoring updates
 _search_cache: Dict[str, tuple[List[Dict[str, str]], float]] = {}
 _search_cache_ttl = 300  # 5 minutes
 
+# SearxNG configuration
+SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8888")
+
+# Get host IP for accessing LLM models from inside Docker container
+HOST_IP = os.getenv("HOST_IP", "host.docker.internal")
+
 # Model registry - add your models here
 MODELS = {
     "gpt-oss-120b": {
         "name": "GPT-OSS-120B (MXFP4)",
-        "url": "http://localhost:8000",
+        "url": f"http://{HOST_IP}:8000",
         "type": "llama.cpp",
         "size": "120B",
         "format": "MXFP4",
@@ -59,7 +63,7 @@ MODELS = {
     },
     "deepseek-nvfp4": {
         "name": "DeepSeek-R1-Distill-Llama-8B (NVFP4)",
-        "url": "http://localhost:8002",
+        "url": f"http://{HOST_IP}:8002",
         "type": "TensorRT-LLM",
         "size": "8B",
         "format": "NVFP4",
@@ -67,7 +71,7 @@ MODELS = {
     },
     "llama-nim": {
         "name": "Llama 3.1 8B Instruct (NIM)",
-        "url": "http://localhost:8003",
+        "url": f"http://{HOST_IP}:8003",
         "type": "NIM",
         "size": "8B",
         "format": "FP16",
@@ -264,98 +268,89 @@ class SystemPromptUpdate(BaseModel):
 
 
 async def _search_web(query: str, num_results: int = 5) -> tuple[List[Dict[str, str]], List[str]]:
-    """Search the web using a real browser via Playwright"""
+    """Search the web using self-hosted SearxNG metasearch engine"""
     results = []
     step_logs = []
     
-    step_logs.append(f"Searching web for: {query}...")
+    # Check cache first
+    cache_key = f"{query}:{num_results}"
+    if cache_key in _search_cache:
+        cached_results, timestamp = _search_cache[cache_key]
+        if time.time() - timestamp < _search_cache_ttl:
+            step_logs.append(f"✓ Using cached results for: {query}")
+            return cached_results, step_logs
+    
+    step_logs.append(f"Searching web via SearxNG for: {query}...")
     
     try:
-        from playwright.async_api import async_playwright
-        import os
+        # SearxNG HTML endpoint (JSON is blocked by default settings)
+        search_url = f"{SEARXNG_URL}/search"
+        params = {
+            "q": query,
+            # Remove "format": "json" - use HTML and parse it
+            "pageno": 1,
+            "language": "en",
+            "categories": "general"
+        }
         
-        # Set Playwright browser path
-        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/root/.cache/ms-playwright'
+        step_logs.append(f"Querying SearxNG at {SEARXNG_URL}...")
         
-        step_logs.append("Launching real browser...")
+        # Headers to bypass bot detection
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
         
-        async with async_playwright() as p:
-            # Launch browser
-            browser = await p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox']
-            )
+        async with httpx.AsyncClient(timeout=30.0, http2=False, follow_redirects=True) as client:
+            response = await client.get(search_url, params=params, headers=headers)
+            response.raise_for_status()
             
-            page = await browser.new_page()
+            # Parse HTML response
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Go to Google and search like a real user would
-            search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-            step_logs.append(f"Navigating to Google...")
+            # Find all result articles (SearxNG uses <article> tags for results)
+            articles = soup.find_all('article', class_='result')
             
-            await page.goto(search_url, wait_until='networkidle', timeout=30000)
+            step_logs.append(f"SearxNG returned {len(articles)} results")
             
-            # Wait a moment for results to render
-            await asyncio.sleep(1)
-            
-            step_logs.append("Extracting search results...")
-            
-            # Get the page content
-            html = await page.content()
-            
-            await browser.close()
-            
-            # Parse with BeautifulSoup
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            # Find Google search result divs
-            search_divs = soup.find_all('div', class_='g')
-            
-            step_logs.append(f"Found {len(search_divs)} result containers")
-            
-            for div in search_divs[:num_results]:
-                # Get title
-                title_elem = div.find('h3')
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                
-                # Get URL from parent anchor
-                link_elem = div.find('a', href=True)
-                if not link_elem:
-                    continue
-                    
-                url = link_elem.get('href', '')
-                
-                # Skip non-result links
-                if not url or url.startswith('/search') or not url.startswith('http'):
-                    continue
-                
-                # Get snippet
-                snippet = ""
-                snippet_containers = div.find_all(['span', 'div'])
-                for container in snippet_containers:
-                    text = container.get_text(strip=True)
-                    if len(text) > 50 and len(text) < 500:  # Reasonable snippet length
-                        snippet = text
-                        break
-                
-                if title and url:
-                    results.append({
-                        'title': title,
-                        'url': url,
-                        'snippet': snippet[:300]
-                    })
-                    step_logs.append(f"  ✓ {title[:50]}...")
+            # Parse and format results
+            for article in articles[:num_results]:
+                # Extract title and URL from h3 > a
+                title_elem = article.find('h3')
+                if title_elem:
+                    link = title_elem.find('a')
+                    if link:
+                        title = link.get_text(strip=True)
+                        url = link.get('href', '')
+                        
+                        # Extract snippet from p.content
+                        snippet_elem = article.find('p', class_='content')
+                        snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
+                        
+                        if title and url:
+                            results.append({
+                                'title': title,
+                                'url': url,
+                                'snippet': snippet[:300] if snippet else ""
+                            })
+                            step_logs.append(f"  ✓ {title[:60]}...")
             
             if results:
-                step_logs.append(f"✓ Found {len(results)} results")
+                step_logs.append(f"✓ Successfully retrieved {len(results)} results")
+                # Cache the results
+                _search_cache[cache_key] = (results, time.time())
             else:
-                step_logs.append("✗ No results found")
+                step_logs.append("⚠ SearxNG returned no usable results")
                 
+    except httpx.HTTPError as e:
+        step_logs.append(f"✗ HTTP error connecting to SearxNG: {str(e)[:100]}")
+        step_logs.append(f"⚠ Is SearxNG running at {SEARXNG_URL}?")
+        print(f"SearxNG HTTP error: {e}")
     except Exception as e:
         step_logs.append(f"✗ Error: {str(e)[:100]}")
-        print(f"Search error: {e}")
+        print(f"SearxNG search error: {e}")
         import traceback
         print(traceback.format_exc())
     
@@ -455,49 +450,6 @@ def _extract_stream_segments(delta: Dict[str, Any]) -> Dict[str, str]:
         "content": "".join(text_buffer),
         "reasoning": "".join(reasoning_buffer),
     }
-
-
-async def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
-    """Search the web using DuckDuckGo and return relevant results."""
-    if not RAG_AVAILABLE:
-        return []
-    
-    try:
-        results = []
-        with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=max_results))
-            
-            for result in search_results:
-                results.append({
-                    "title": result.get("title", ""),
-                    "url": result.get("href", ""),
-                    "snippet": result.get("body", "")
-                })
-        
-        return results
-    except Exception as e:
-        print(f"Web search error: {e}")
-        return []
-
-
-def format_search_context(query: str, results: List[Dict[str, str]]) -> str:
-    """Format search results into a context string for the LLM."""
-    if not results:
-        return ""
-    
-    context = f"# Web Search Results for: {query}\n\n"
-    context += "I found the following relevant information from the internet:\n\n"
-    
-    for i, result in enumerate(results, 1):
-        context += f"## Source {i}: {result['title']}\n"
-        context += f"URL: {result['url']}\n"
-        context += f"{result['snippet']}\n\n"
-    
-    context += "---\n\n"
-    context += "Please use the above information to help answer the user's question. "
-    context += "Cite sources when relevant.\n\n"
-    
-    return context
 
 
 @app.on_event("startup")
