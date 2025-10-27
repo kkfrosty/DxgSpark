@@ -13,7 +13,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -22,16 +22,18 @@
             max-width: 1400px;
             margin: 0 auto;
             background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
             overflow: hidden;
+            border: 1px solid #e0e0e0;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #76b900 0%, #5a9000 100%);
             color: white;
             padding: 30px;
             text-align: center;
+            border-bottom: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
         .header h1 {
@@ -44,6 +46,25 @@
             font-size: 1.1em;
         }
 
+        .header-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .header-link:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
         .main-content {
             display: grid;
             grid-template-columns: 350px 1fr;
@@ -52,20 +73,20 @@
         }
 
         .sidebar {
-            background: #f8f9fa;
+            background: #fafafa;
             padding: 30px;
-            border-right: 1px solid #dee2e6;
+            border-right: 1px solid #e0e0e0;
             overflow-y: auto;
         }
 
         .monitoring-section {
             margin-top: 30px;
             padding-top: 30px;
-            border-top: 2px solid #dee2e6;
+            border-top: 2px solid #e0e0e0;
         }
 
         .monitoring-section h3 {
-            color: #667eea;
+            color: #76b900;
             margin-bottom: 15px;
             font-size: 1.2em;
         }
@@ -75,27 +96,27 @@
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 15px;
-            border: 1px solid #dee2e6;
+            border: 1px solid #e0e0e0;
         }
 
         .metric-label {
             font-size: 0.85em;
-            color: #6c757d;
+            color: #666;
             margin-bottom: 5px;
         }
 
         .metric-value {
             font-size: 1.5em;
             font-weight: 700;
-            color: #495057;
+            color: #212121;
         }
 
         .metric-value.good {
-            color: #28a745;
+            color: #76b900;
         }
 
         .metric-value.warning {
-            color: #ffc107;
+            color: #ff9800;
         }
 
         .metric-value.danger {
@@ -112,12 +133,12 @@
 
         .metric-bar-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
+            background: linear-gradient(90deg, #76b900, #0f3b1a);
             transition: width 0.5s ease;
         }
 
         .gpu-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #76b900 0%, #0f3b1a 100%);
             color: white;
             padding: 15px;
             border-radius: 8px;
@@ -137,11 +158,11 @@
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
-            border: 1px solid #dee2e6;
+            border: 1px solid #e0e0e0;
         }
 
         .model-info h3 {
-            color: #667eea;
+            color: #76b900;
             margin-bottom: 15px;
             font-size: 1.1em;
         }
@@ -219,7 +240,7 @@
         }
 
         .message-content {
-            background: #f8f9fa;
+            background: #f9f9f9;
             padding: 15px 20px;
             border-radius: 12px;
             line-height: 1.6;
@@ -242,7 +263,7 @@
 
         .message-content pre {
             background: #1f2933;
-            color: #f8f9fa;
+            color: #333;
             padding: 12px;
             border-radius: 10px;
             overflow-x: auto;
@@ -271,7 +292,7 @@
         }
 
         .message.user .message-content {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #76b900 0%, #0f3b1a 100%);
             color: white;
             margin-left: 50px;
         }
@@ -303,7 +324,7 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #667eea;
+            background: #76b900;
             animation: pulse 1s ease-in-out infinite;
         }
 
@@ -386,12 +407,12 @@
 
         .response-tab:hover {
             color: #495057;
-            background: #f8f9fa;
+            background: #f9f9f9;
         }
 
         .response-tab.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
+            color: #76b900;
+            border-bottom-color: #76b900;
         }
 
         .tab-content {
@@ -405,7 +426,7 @@
         .steps-log {
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
             font-size: 0.9em;
-            background: #f8f9fa;
+            background: #f9f9f9;
             padding: 12px;
             border-radius: 8px;
             max-height: 400px;
@@ -414,13 +435,13 @@
 
         .step-entry {
             padding: 4px 0;
-            border-left: 3px solid #dee2e6;
+            border-left: 3px solid #e0e0e0;
             padding-left: 8px;
             margin-bottom: 4px;
         }
 
         .step-entry.info {
-            border-left-color: #667eea;
+            border-left-color: #76b900;
             color: #495057;
         }
 
@@ -447,9 +468,9 @@
 
         .source-item {
             padding: 12px;
-            background: #f8f9fa;
+            background: #f9f9f9;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #76b900;
         }
 
         .source-title {
@@ -467,7 +488,7 @@
 
         .source-link {
             font-size: 0.85em;
-            color: #667eea;
+            color: #76b900;
             text-decoration: none;
             word-break: break-all;
         }
@@ -592,8 +613,8 @@
 
         .input-area {
             padding: 20px 30px;
-            background: #f8f9fa;
-            border-top: 1px solid #dee2e6;
+            background: #f9f9f9;
+            border-top: 1px solid #e0e0e0;
         }
 
         .input-container {
@@ -604,7 +625,7 @@
         .message-input {
             flex: 1;
             padding: 15px 20px;
-            border: 2px solid #dee2e6;
+            border: 2px solid #e0e0e0;
             border-radius: 12px;
             font-size: 1em;
             font-family: inherit;
@@ -614,13 +635,13 @@
 
         .message-input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #76b900;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
         .send-button {
             padding: 15px 30px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #76b900 0%, #0f3b1a 100%);
             color: white;
             border: none;
             border-radius: 12px;
@@ -653,7 +674,7 @@
             align-items: center;
             gap: 12px;
             padding-top: 12px;
-            border-top: 1px solid #dee2e6;
+            border-top: 1px solid #e0e0e0;
             flex-wrap: wrap;
         }
 
@@ -697,7 +718,7 @@
         }
 
         .model-chip.active {
-            border: 2px solid #667eea;
+            border: 2px solid #76b900;
             box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
         }
 
@@ -713,7 +734,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #76b900 0%, #0f3b1a 100%);
             color: white;
             font-size: 0.85em;
             font-weight: 700;
@@ -819,7 +840,7 @@
         }
 
         .modal-section h3 {
-            color: #667eea;
+            color: #76b900;
             margin-bottom: 12px;
             font-size: 1.05em;
         }
@@ -827,7 +848,7 @@
         .modal-select {
             width: 100%;
             padding: 12px;
-            border: 2px solid #dee2e6;
+            border: 2px solid #e0e0e0;
             border-radius: 10px;
             font-size: 1em;
             background: white;
@@ -837,7 +858,7 @@
 
         .modal-select:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #76b900;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
@@ -846,7 +867,7 @@
             width: 20px;
             height: 20px;
             border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+            border-top: 3px solid #76b900;
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
@@ -870,11 +891,11 @@
             padding: 20px;
             background: white;
             border-radius: 10px;
-            border: 1px solid #dee2e6;
+            border: 1px solid #e0e0e0;
         }
 
         .settings-section h3 {
-            color: #667eea;
+            color: #76b900;
             margin-bottom: 15px;
             font-size: 1.1em;
         }
@@ -894,7 +915,7 @@
         .setting-row input {
             width: 100%;
             padding: 8px 12px;
-            border: 1px solid #dee2e6;
+            border: 1px solid #e0e0e0;
             border-radius: 6px;
         }
 
@@ -920,11 +941,11 @@
             padding: 20px;
             background: white;
             border-radius: 10px;
-            border: 1px solid #dee2e6;
+            border: 1px solid #e0e0e0;
         }
 
         .system-prompt-section h3 {
-            color: #667eea;
+            color: #76b900;
             margin-bottom: 12px;
             font-size: 1.1em;
         }
@@ -932,7 +953,7 @@
         .system-prompt-textarea {
             width: 100%;
             min-height: 140px;
-            border: 2px solid #dee2e6;
+            border: 2px solid #e0e0e0;
             border-radius: 10px;
             padding: 12px;
             font-family: inherit;
@@ -942,7 +963,7 @@
 
         .system-prompt-textarea:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #76b900;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
@@ -963,7 +984,7 @@
         }
 
         .system-prompt-button.primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #76b900 0%, #0f3b1a 100%);
             color: white;
         }
 
@@ -985,7 +1006,7 @@
         }
 
         .system-prompt-button.secondary:hover:not(:disabled) {
-            background: #dee2e6;
+            background: #e0e0e0;
         }
 
         .system-prompt-status {
@@ -1012,6 +1033,9 @@
         <div class="header">
             <h1>🚀 DxGChatBenchMark</h1>
             <p>DGX Spark Multi-Model Chat & Performance Benchmarking</p>
+            <a href="http://192.168.2.180:8888" target="_blank" class="header-link">
+                🔍 Open SearxNG Search Engine
+            </a>
         </div>
 
         <div class="main-content">
@@ -1450,7 +1474,7 @@
                     <div style="margin: 12px 0 8px 0; padding: 8px 12px; background: rgba(255,255,255,0.5); border-radius: 6px; font-weight: 600;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Total: ${totalTokens.toLocaleString()} tokens in ${formatNum(totalTime, 2)}s</span>
-                            <span style="color: #667eea;">${formatNum(throughput, 2)} tok/s</span>
+                            <span style="color: #76b900;">${formatNum(throughput, 2)} tok/s</span>
                         </div>
                     </div>
                     
@@ -1489,7 +1513,7 @@
                         </div>
                         <div class="stat" style="grid-column: span 2;">
                             <span class="stat-label">📊 Overall Throughput</span>
-                            <span class="stat-value" style="color: #667eea; font-size: 1.2em;">${formatNum(throughput, 2)} tok/s</span>
+                            <span class="stat-value" style="color: #76b900; font-size: 1.2em;">${formatNum(throughput, 2)} tok/s</span>
                         </div>
                     </div>
                 </div>
