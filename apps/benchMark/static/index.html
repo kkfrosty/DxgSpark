@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DxGChatBenchMark - DGX Spark Model Benchmarking</title>
+    <title>DxGChatBenchMark v2.0 - REASONING UPDATE</title>
     <style>
         * {
             margin: 0;
@@ -305,6 +305,118 @@
         .message.assistant.streaming .message-content {
             border: 1px dashed rgba(102, 126, 234, 0.4);
             background: #f6f7ff;
+        }
+
+        .reasoning-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff9db;
+            border-left: 4px solid #ffc107;
+            border-radius: 6px;
+        }
+
+        .reasoning-toggle {
+            cursor: pointer;
+            font-weight: 600;
+            color: #856404;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .reasoning-toggle:hover {
+            color: #533f03;
+        }
+
+        .reasoning-toggle .toggle-icon {
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }
+
+        .reasoning-toggle .toggle-icon.open {
+            transform: rotate(90deg);
+        }
+
+        .reasoning-content {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #ffeaa7;
+            color: #856404;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        .reasoning-content strong {
+            color: #533f03;
+        }
+
+        .sources-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .sources-section h3 {
+            font-size: 1em;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #495057;
+        }
+
+        .sources-section ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .sources-section li {
+            margin-bottom: 5px;
+        }
+
+        .sources-section a {
+            color: #4c6ef5;
+            text-decoration: none;
+        }
+
+        .sources-section a:hover {
+            text-decoration: underline;
+        }
+
+        .response-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 0.95em;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .response-table thead tr {
+            background-color: #76b900;
+            color: white;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .response-table th,
+        .response-table td {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+        }
+
+        .response-table tbody tr {
+            border-bottom: 1px solid #ddd;
+        }
+
+        .response-table tbody tr:nth-of-type(even) {
+            background-color: #f9f9f9;
+        }
+
+        .response-table tbody tr:hover {
+            background-color: #f1f3f5;
+        }
+
+        .response-table tbody tr:last-of-type {
+            border-bottom: 2px solid #76b900;
         }
 
         .hidden {
@@ -1676,13 +1788,59 @@
             stepsTab.onclick = () => switchTab('steps');
 
             const updateContent = () => {
-                textWrapper.innerHTML = renderMarkdown(contentBuffer);
+                // Render markdown and extract sources section if present
+                let htmlContent = renderMarkdown(contentBuffer);
+                
+                // Check if there's a "## Sources" section in the content
+                const sourcesMatch = contentBuffer.match(/##\s*Sources\s*\n([\s\S]*?)(?=\n##|\n\n##|$)/i);
+                
+                if (sourcesMatch) {
+                    // Extract main content without sources
+                    const mainContent = contentBuffer.replace(/##\s*Sources\s*\n[\s\S]*$/i, '').trim();
+                    textWrapper.innerHTML = renderMarkdown(mainContent);
+                    
+                    // Parse and display sources in the sources tab
+                    const sourcesText = sourcesMatch[1].trim();
+                    const sourceItems = sourcesText.split('\n').filter(line => line.trim());
+                    
+                    if (sourceItems.length > 0) {
+                        const sourcesList = document.createElement('div');
+                        sourcesList.className = 'sources-list';
+                        
+                        sourceItems.forEach((item) => {
+                            // Parse markdown links: [Title](URL)
+                            const linkMatch = item.match(/\d+\.\s*\[([^\]]+)\]\(([^)]+)\)/);
+                            if (linkMatch) {
+                                const [, title, url] = linkMatch;
+                                const sourceItem = document.createElement('div');
+                                sourceItem.className = 'source-item';
+                                sourceItem.innerHTML = `
+                                    <div class="source-title">${escapeHtml(title)}</div>
+                                    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="source-link">${escapeHtml(url)}</a>
+                                `;
+                                sourcesList.appendChild(sourceItem);
+                            }
+                        });
+                        
+                        if (sourcesList.children.length > 0) {
+                            sourcesContent.innerHTML = '';
+                            sourcesContent.appendChild(sourcesList);
+                        }
+                    }
+                } else {
+                    textWrapper.innerHTML = htmlContent;
+                }
+                
                 scrollMessagesToBottom();
             };
 
             const updateReasoning = () => {
                 if (reasoningBuffer.trim()) {
-                    reasoningText.textContent = reasoningBuffer.trim();
+                    // Convert markdown-style bold to HTML
+                    const formattedReasoning = reasoningBuffer.trim()
+                        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\n/g, '<br>');
+                    reasoningText.innerHTML = formattedReasoning;
                     reasoningBlock.classList.remove('hidden');
                 } else {
                     reasoningBlock.classList.add('hidden');
@@ -1747,9 +1905,11 @@
                     contentBuffer = finalText;
                     updateContent();
 
-                    const combinedReasoning = [reasoningBuffer, reasoningSummary]
+                    // Use reasoning_trace from benchmark if available
+                    const benchmarkReasoning = benchmark && benchmark.reasoning_trace ? benchmark.reasoning_trace : null;
+                    const combinedReasoning = [reasoningBuffer, benchmarkReasoning, reasoningSummary]
                         .filter(Boolean)
-                        .join('\n')
+                        .join('\n\n')
                         .trim();
                     reasoningBuffer = combinedReasoning;
                     updateReasoning();
@@ -1979,6 +2139,9 @@
             let inOl = false;
             let inCode = false;
             let codeLanguage = '';
+            let inTable = false;
+            let tableHeaders = [];
+            let tableRows = [];
 
             const flushLists = () => {
                 if (inUl) {
@@ -1988,6 +2151,24 @@
                 if (inOl) {
                     html += '</ol>';
                     inOl = false;
+                }
+            };
+
+            const flushTable = () => {
+                if (inTable && tableHeaders.length > 0) {
+                    html += '<table class="response-table">';
+                    html += '<thead><tr>';
+                    tableHeaders.forEach(h => html += `<th>${inlineFormat(h)}</th>`);
+                    html += '</tr></thead><tbody>';
+                    tableRows.forEach(row => {
+                        html += '<tr>';
+                        row.forEach(cell => html += `<td>${inlineFormat(cell)}</td>`);
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    inTable = false;
+                    tableHeaders = [];
+                    tableRows = [];
                 }
             };
 
@@ -2030,7 +2211,28 @@
 
                 if (/^\s*$/.test(line)) {
                     flushLists();
+                    flushTable();
                     html += '';
+                    return;
+                }
+
+                // Detect table rows (tab-separated or pipe-separated)
+                if (line.includes('\t') || /^\|.*\|$/.test(line)) {
+                    flushLists();
+                    const cells = line.includes('\t') 
+                        ? line.split('\t').map(c => c.trim())
+                        : line.split('|').map(c => c.trim()).filter(c => c);
+                    
+                    if (cells.length > 0) {
+                        if (!inTable) {
+                            // First row is headers
+                            inTable = true;
+                            tableHeaders = cells;
+                        } else if (!/^[-:\s|]+$/.test(line)) {
+                            // Skip separator rows like |---|---|
+                            tableRows.push(cells);
+                        }
+                    }
                     return;
                 }
 
@@ -2057,6 +2259,7 @@
                 }
 
                 flushLists();
+                flushTable();
                 const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
                 if (headerMatch) {
                     const level = headerMatch[1].length;
@@ -2069,6 +2272,7 @@
             });
 
             flushLists();
+            flushTable();
             if (inCode) {
                 html += '</code></pre>';
             }

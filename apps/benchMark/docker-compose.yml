@@ -8,7 +8,7 @@ services:
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
-      - SEARXNG_BASE_URL=http://192.168.2.180:8888/
+      - SEARXNG_BASE_URL=http://pgx.ca.local:8888/
     restart: unless-stopped
     depends_on:
       - redis
@@ -42,7 +42,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - SEARXNG_URL=http://searxng:8080  # SearxNG listens on port 8080 inside container
-      - HOST_IP=192.168.2.180
+      - HOST_IP=192.168.2.64
       # Uncomment and adjust for PostgreSQL (requires postgresql+asyncpg:// prefix)
       # - DATABASE_URL=postgresql+asyncpg://benchmark:benchmark_pass@postgres:5432/benchmark_db
     restart: unless-stopped

@@ -34,6 +34,84 @@ except ImportError:
     RAG_AVAILABLE = False
     print("Warning: RAG dependencies not installed. Install with: pip install beautifulsoup4")
 
+
+def parse_harmony_format(text: str) -> dict:
+    """Parse GPT-OSS harmony format and extract reasoning channels and final answer.
+    
+    Returns:
+        dict with 'final_answer', 'reasoning', and 'raw_text' keys
+    """
+    if not text or '<|channel|>' not in text:
+        return {'final_answer': text, 'reasoning': None, 'raw_text': text}
+    
+    channels = {}
+    current_channel = None
+    current_message = []
+    
+    # Split by harmony format tags
+    parts = re.split(r'(<\|(?:channel|message|end|start)\|>)', text)
+    
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        
+        if part == '<|channel|>':
+            # Next part should be channel name
+            if i + 1 < len(parts):
+                i += 1
+                current_channel = parts[i].strip()
+        elif part == '<|message|>':
+            # Next part is the message content
+            if i + 1 < len(parts) and current_channel:
+                i += 1
+                current_message.append(parts[i])
+        elif part == '<|end|>':
+            # End of current message, save it
+            if current_channel and current_message:
+                message_text = ''.join(current_message).strip()
+                if current_channel not in channels:
+                    channels[current_channel] = []
+                channels[current_channel].append(message_text)
+                current_message = []
+        elif part == '<|start|>':
+            # Reset for next message
+            current_channel = None
+            current_message = []
+        
+        i += 1
+    
+    # Extract final answer from 'final' channel
+    final_answer = ''
+    if 'final' in channels and channels['final']:
+        final_answer = channels['final'][-1]  # Use last final message
+    elif 'assistant' in channels and channels['assistant']:
+        final_answer = channels['assistant'][-1]
+    else:
+        # Fallback: try to extract text after last <|message|> tag
+        final_parts = text.split('<|message|>')
+        if len(final_parts) > 1:
+            final_answer = final_parts[-1].split('<|end|>')[0].strip()
+        else:
+            final_answer = text
+    
+    # Build reasoning summary
+    reasoning_parts = []
+    if 'analysis' in channels:
+        reasoning_parts.append('**Analysis:**\n' + '\n'.join(channels['analysis']))
+    if 'thinking' in channels:
+        reasoning_parts.append('**Thinking:**\n' + '\n'.join(channels['thinking']))
+    if 'planning' in channels:
+        reasoning_parts.append('**Planning:**\n' + '\n'.join(channels['planning']))
+    
+    reasoning = '\n\n'.join(reasoning_parts) if reasoning_parts else None
+    
+    return {
+        'final_answer': final_answer,
+        'reasoning': reasoning,
+        'raw_text': text
+    }
+
+
 app = FastAPI(title="DxGChatBenchMark", version="1.0.0")
 
 # Global monitoring storage
@@ -255,6 +333,7 @@ class BenchmarkResult(BaseModel):
     throughput: float
     timestamp: str
     response_text: str
+    reasoning_trace: Optional[str] = None
     prompt_tokens_per_sec: Optional[float] = None
     generation_tokens_per_sec: Optional[float] = None
     time_to_first_token: Optional[float] = None
@@ -476,8 +555,18 @@ async def on_startup() -> None:
 @app.get("/")
 async def root():
     """Serve the main chat interface"""
+    from fastapi.responses import Response
     with open("static/index.html", "r") as f:
-        return HTMLResponse(content=f.read())
+        content = f.read()
+    return Response(
+        content=content,
+        media_type="text/html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 
 @app.get("/api/models")
@@ -571,6 +660,16 @@ async def chat(request: ChatRequest):
         elif "text" in choice:
             generated_text = choice.get("text", "")
     
+    # Parse harmony format if present
+    parsed_response = parse_harmony_format(generated_text)
+    final_text = parsed_response['final_answer']
+    reasoning = parsed_response['reasoning']
+    
+    # Debug logging
+    if reasoning:
+        print(f"[DEBUG] Parsed reasoning: {reasoning[:100]}...")
+    print(f"[DEBUG] Final text length: {len(final_text)}, Original length: {len(generated_text)}")
+    
     # Calculate performance metrics
     # Estimate: prefill is ~10-20% of total time (depends on prompt size)
     prefill_ratio = min(0.2, prompt_tokens / max(total_tokens, 1) * 0.5)
@@ -592,7 +691,8 @@ async def chat(request: ChatRequest):
         token_generation_speed=round(token_generation_speed, 2),
         throughput=round(throughput, 2),
         timestamp=datetime.now().isoformat(),
-        response_text=generated_text,
+        response_text=final_text,
+        reasoning_trace=reasoning,
         prompt_tokens_per_sec=round(prompt_processing_speed, 2),
         generation_tokens_per_sec=round(token_generation_speed, 2)
     )
@@ -713,6 +813,11 @@ async def chat_stream(request: ChatRequest):
         content_token_count: int = 0
         reasoning_token_count: int = 0
         
+        # Track harmony format state
+        current_channel: Optional[str] = None
+        in_message: bool = False
+        buffer: str = ""
+        
         # Emit initial step
         yield _format_sse("step", {"message": f"Preparing request to {model_config['name']}", "type": "info"})
         
@@ -778,9 +883,47 @@ async def chat_stream(request: ChatRequest):
                             if segments["content"]:
                                 if first_token_time is None:
                                     first_token_time = time.perf_counter()
-                                response_text += segments["content"]
+                                
+                                text_chunk = segments["content"]
+                                response_text += text_chunk
                                 content_token_count += 1
-                                yield _format_sse("token", {"text": segments["content"]})
+                                buffer += text_chunk
+                                
+                                # Parse harmony format tags in buffer
+                                if '<|channel|>' in buffer:
+                                    # Extract channel name
+                                    parts = buffer.split('<|channel|>', 1)
+                                    if len(parts) > 1:
+                                        channel_match = parts[1].split('<|', 1)[0]
+                                        current_channel = channel_match.strip()
+                                        buffer = parts[1].split('<|message|>', 1)[-1] if '<|message|>' in parts[1] else ""
+                                        in_message = '<|message|>' in parts[1]
+                                elif '<|message|>' in buffer:
+                                    in_message = True
+                                    buffer = buffer.split('<|message|>', 1)[-1]
+                                elif '<|end|>' in buffer:
+                                    in_message = False
+                                    buffer = buffer.split('<|end|>', 1)[-1]
+                                elif '<|start|>' in buffer:
+                                    current_channel = None
+                                    in_message = False
+                                    buffer = buffer.split('<|start|>', 1)[-1]
+                                
+                                # Only stream tokens if we're in the 'final' channel or no channel detected yet
+                                if (current_channel == 'final' or current_channel is None) and in_message:
+                                    # Send clean text without tags
+                                    clean_text = text_chunk
+                                    for tag in ['<|channel|>', '<|message|>', '<|end|>', '<|start|>']:
+                                        clean_text = clean_text.replace(tag, '')
+                                    if clean_text and not any(ch in clean_text for ch in ['final', 'analysis', 'thinking', 'planning']) or len(clean_text) > 20:
+                                        yield _format_sse("token", {"text": clean_text})
+                                elif current_channel in ['analysis', 'thinking', 'planning'] and in_message:
+                                    # This is reasoning - send to reasoning channel
+                                    clean_reasoning = text_chunk
+                                    for tag in ['<|channel|>', '<|message|>', '<|end|>', '<|start|>']:
+                                        clean_reasoning = clean_reasoning.replace(tag, '')
+                                    if clean_reasoning:
+                                        yield _format_sse("reasoning", {"text": clean_reasoning})
 
                             if segments["reasoning"]:
                                 if first_token_time is None:
@@ -842,6 +985,16 @@ async def chat_stream(request: ChatRequest):
             generation_speed = completion_tokens / generation_duration if generation_duration > 0 else 0.0
             throughput = total_tokens / total_duration if total_duration > 0 else 0.0
 
+        # Parse harmony format if present in response
+        parsed_response = parse_harmony_format(response_text)
+        final_text = parsed_response['final_answer']
+        parsed_reasoning = parsed_response['reasoning']
+        
+        # Debug logging
+        if parsed_reasoning:
+            print(f"[STREAM DEBUG] Parsed reasoning: {parsed_reasoning[:100]}...")
+        print(f"[STREAM DEBUG] Final text length: {len(final_text)}, Original length: {len(response_text)}")
+        
         benchmark_result = BenchmarkResult(
             model_id=request.model_id,
             model_name=model_config["name"],
@@ -853,7 +1006,8 @@ async def chat_stream(request: ChatRequest):
             token_generation_speed=round(generation_speed, 2),
             throughput=round(throughput, 2),
             timestamp=datetime.now().isoformat(),
-            response_text=response_text,
+            response_text=final_text,
+            reasoning_trace=parsed_reasoning,
             prompt_tokens_per_sec=round(prompt_speed, 2),
             generation_tokens_per_sec=round(generation_speed, 2),
             time_to_first_token=round(prefill_duration, 4),
