@@ -39,6 +39,10 @@ services:
       - .:/app
       # Persist SQLite database
       - ./data:/app/data
+      # Mount deployments directory to run docker-compose for model loading
+      - /home/kfrost/DxgSpark/deployments:/home/kfrost/DxgSpark/deployments:ro
+      # Mount docker socket to control sibling containers
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONUNBUFFERED=1
       - SEARXNG_URL=http://searxng:8080  # SearxNG listens on port 8080 inside container

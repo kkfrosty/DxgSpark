@@ -128,16 +128,37 @@ SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8888")
 
 # Get host IP for accessing LLM models from inside Docker container
 HOST_IP = os.getenv("HOST_IP", "host.docker.internal")
+EMBEDDING_URL = f"http://{HOST_IP}:8001"
 
-# Model registry - add your models here
+# Unified deployment directory for all models
+UNIFIED_DEPLOY_DIR = "/home/kfrost/DxgSpark/deployments/multi-agent-embedding"
+
+# Model registry - using llama.cpp for consistent GGUF-based inference
 MODELS = {
-    "gpt-oss-120b": {
-        "name": "GPT-OSS-120B (MXFP4)",
+    "gpt-oss-20b": {
+        "name": "GPT-OSS-20B (MXFP4)",
         "url": f"http://{HOST_IP}:8000",
         "type": "llama.cpp",
+        "size": "20B",
+        "format": "GGUF (MXFP4)",
+        "supports_tools": False,
+        "default": True,
+        "model_path": "/home/kfrost/assets/models/gpt-oss-20b-mxfp4",
+        "docker_compose_dir": UNIFIED_DEPLOY_DIR,
+        "docker_service": "gpt-oss-20b",
+        "load_command": f"cd {UNIFIED_DEPLOY_DIR} && docker compose up -d gpt-oss-20b"
+    },
+    "gpt-oss-120b": {
+        "name": "GPT-OSS-120B (MXFP4)",
+        "url": f"http://{HOST_IP}:8010",
+        "type": "llama.cpp",
         "size": "120B",
-        "format": "MXFP4",
-        "supports_tools": False  # llama.cpp doesn't support native tool calling
+        "format": "GGUF (MXFP4)",
+        "supports_tools": False,
+        "model_path": "/home/kfrost/assets/models/gpt-oss-120b-mxfp4/gpt-oss-120b-mxfp4-00001-of-00003.gguf",
+        "docker_compose_dir": UNIFIED_DEPLOY_DIR,
+        "docker_service": "gpt-oss-120b",
+        "load_command": f"cd {UNIFIED_DEPLOY_DIR} && docker compose up -d gpt-oss-120b"
     },
     "deepseek-nvfp4": {
         "name": "DeepSeek-R1-Distill-Llama-8B (NVFP4)",
@@ -145,18 +166,18 @@ MODELS = {
         "type": "TensorRT-LLM",
         "size": "8B",
         "format": "NVFP4",
-        "supports_tools": False
-    },
-    "llama-nim": {
-        "name": "Llama 3.1 8B Instruct (NIM)",
-        "url": f"http://{HOST_IP}:8003",
-        "type": "NIM",
-        "size": "8B",
-        "format": "FP16",
-        "supports_tools": True
+        "supports_tools": False,
+        "model_path": None,
+        "docker_compose_dir": None,
+        "docker_service": None,
+        "load_command": None
     },
     # Add more models as you deploy them
 }
+
+# Track loaded models and their Docker container info
+loaded_models: Dict[str, Dict[str, Any]] = {}
+_loaded_models_lock = asyncio.Lock()
 
 # Tool definition for web search
 SEARCH_TOOL_DEFINITION = {
@@ -552,6 +573,41 @@ async def on_startup() -> None:
         system_prompts.update(prompts)
 
 
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    """Clean up loaded models on shutdown."""
+    async with _loaded_models_lock:
+        print(f"Shutting down... cleaning up {len(loaded_models)} loaded models")
+        for model_id, model_info in list(loaded_models.items()):
+            try:
+                if model_info.get("type") == "docker":
+                    print(f"Stopping Docker service for model {model_id}...")
+                    compose_dir = model_info.get("compose_dir")
+                    service = model_info.get("service")
+                    if compose_dir and service:
+                        subprocess.run(
+                            f"cd {compose_dir} && docker compose stop {service}",
+                            shell=True, timeout=10
+                        )
+                else:
+                    process = model_info.get("process")
+                    if process and process.poll() is None:
+                        print(f"Terminating model {model_id}...")
+                        process.terminate()
+                        # Give it 2 seconds to shut down gracefully
+                        for _ in range(4):
+                            if process.poll() is not None:
+                                break
+                            await asyncio.sleep(0.5)
+                        # Force kill if still running
+                        if process.poll() is None:
+                            print(f"Force killing model {model_id}...")
+                            process.kill()
+            except Exception as e:
+                print(f"Error cleaning up model {model_id}: {e}")
+        loaded_models.clear()
+
+
 @app.get("/")
 async def root():
     """Serve the main chat interface"""
@@ -590,6 +646,29 @@ async def get_models():
                 except:
                     is_available = False
             
+            async with _loaded_models_lock:
+                is_loaded = False
+                if model_id in loaded_models:
+                    model_info = loaded_models[model_id]
+                    if model_info.get("type") == "docker":
+                        # Check if Docker container is running
+                        try:
+                            compose_dir = model_info.get("compose_dir")
+                            service = model_info.get("service")
+                            result = subprocess.run(
+                                f"cd {compose_dir} && docker compose ps -q {service}",
+                                shell=True, capture_output=True, text=True, timeout=5
+                            )
+                            is_loaded = result.returncode == 0 and bool(result.stdout.strip())
+                        except:
+                            is_loaded = False
+                    else:
+                        # Check if native process is running
+                        process = model_info.get("process")
+                        is_loaded = process and process.poll() is None
+            
+            can_load = config.get("load_command") is not None
+            
             models_status.append({
                 "id": model_id,
                 "name": config["name"],
@@ -597,11 +676,174 @@ async def get_models():
                 "size": config["size"],
                 "format": config["format"],
                 "available": is_available,
+                "loaded": is_loaded,
+                "can_load": can_load,
                 "url": config["url"],
                 "system_prompt": prompts_snapshot.get(model_id, "")
             })
     
     return {"models": models_status}
+
+
+@app.post("/api/models/{model_id}/load")
+async def load_model(model_id: str):
+    """Load a model by starting its Docker container or server process"""
+    if model_id not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+    
+    config = MODELS[model_id]
+    
+    if not config.get("load_command"):
+        raise HTTPException(status_code=400, detail=f"Model {model_id} does not support auto-loading")
+    
+    async with _loaded_models_lock:
+        # Check if already loaded
+        if model_id in loaded_models:
+            # For Docker containers, check if it's actually running
+            if config.get("docker_service"):
+                try:
+                    result = subprocess.run(
+                        f"cd {config['docker_compose_dir']} && docker compose ps -q {config['docker_service']}",
+                        shell=True, capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        return {"status": "already_loaded", "message": f"Model {config['name']} is already running"}
+                except:
+                    pass
+        
+        # Note: Skip file existence check since benchMark runs in Docker
+        # and can't see host filesystem. The model containers will handle this.
+        
+        try:
+            # Start the model server
+            load_cmd = config["load_command"]
+            print(f"Starting model {model_id} with command: {load_cmd}")
+            
+            # Create log directory if it doesn't exist
+            log_dir = Path("logs")
+            log_dir.mkdir(exist_ok=True)
+            
+            # Start process with output redirected to log file
+            log_file = log_dir / f"{model_id}.log"
+            with open(log_file, "w") as f:
+                process = subprocess.Popen(
+                    load_cmd,
+                    shell=True,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    cwd=config.get("docker_compose_dir", None)
+                )
+            
+            loaded_models[model_id] = {
+                "process": process,
+                "type": "docker" if config.get("docker_service") else "native",
+                "service": config.get("docker_service"),
+                "compose_dir": config.get("docker_compose_dir")
+            }
+            
+            # Wait a bit to ensure it starts properly
+            await asyncio.sleep(3)
+            
+            # Check if process is still running (for non-Docker processes)
+            # Docker compose with -d exits immediately (code 0) after starting container
+            if process.poll() is not None:
+                # For Docker, exit code 0 is success (container started in background)
+                if config.get("docker_service") and process.returncode == 0:
+                    pass  # Success - container started
+                else:
+                    error_msg = f"Process exited with code {process.returncode}. Check logs/{model_id}.log"
+                    del loaded_models[model_id]
+                    raise HTTPException(status_code=500, detail=error_msg)
+            
+            return {
+                "status": "loaded",
+                "message": f"Model {config['name']} is starting. It may take 30-60 seconds to be ready for requests.",
+                "log_file": str(log_file)
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Failed to load model {model_id}: {e}")
+            if model_id in loaded_models:
+                del loaded_models[model_id]
+            raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+
+
+@app.post("/api/models/{model_id}/unload")
+async def unload_model(model_id: str):
+    """Unload a model by stopping its Docker container or server process"""
+    if model_id not in MODELS:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+    
+    config = MODELS[model_id]
+    
+    async with _loaded_models_lock:
+        if model_id not in loaded_models:
+            # Try to stop Docker container anyway if configured
+            if config.get("docker_service"):
+                try:
+                    compose_dir = config.get("docker_compose_dir")
+                    service = config.get("docker_service")
+                    subprocess.run(
+                        f"cd {compose_dir} && docker compose stop {service}",
+                        shell=True, timeout=30
+                    )
+                    return {"status": "unloaded", "message": f"Model {config['name']} has been stopped"}
+                except Exception as e:
+                    print(f"Error stopping Docker service: {e}")
+            
+            return {"status": "not_loaded", "message": f"Model {config['name']} is not tracked as loaded"}
+        
+        model_info = loaded_models[model_id]
+        
+        try:
+            if model_info["type"] == "docker" and model_info["service"]:
+                # Stop Docker container
+                compose_dir = model_info["compose_dir"]
+                service = model_info["service"]
+                print(f"Stopping Docker service: {service}")
+                
+                result = subprocess.run(
+                    f"cd {compose_dir} && docker compose stop {service}",
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode != 0:
+                    print(f"Docker stop warning: {result.stderr}")
+            else:
+                # Stop native process
+                process = model_info["process"]
+                if process.poll() is None:
+                    process.terminate()
+                    
+                    # Wait up to 5 seconds for graceful shutdown
+                    for _ in range(10):
+                        if process.poll() is not None:
+                            break
+                        await asyncio.sleep(0.5)
+                    
+                    # Force kill if still running
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+            
+            del loaded_models[model_id]
+            
+            return {
+                "status": "unloaded",
+                "message": f"Model {config['name']} has been stopped"
+            }
+            
+        except Exception as e:
+            print(f"Error unloading model {model_id}: {e}")
+            # Remove from dict even if there was an error
+            if model_id in loaded_models:
+                del loaded_models[model_id]
+            raise HTTPException(status_code=500, detail=f"Error unloading model: {str(e)}")
 
 
 @app.post("/api/chat", response_model=BenchmarkResult)

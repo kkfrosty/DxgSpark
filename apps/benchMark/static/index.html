@@ -1260,6 +1260,15 @@
                     <span class="info-label">Format:</span>
                     <span class="info-value" id="model-format"></span>
                 </div>
+                <div id="model-load-section" style="margin-top: 20px; display: none;">
+                    <button id="model-load-btn" class="system-prompt-button primary" onclick="loadModel()" style="width: 100%;">
+                        🚀 Load Model
+                    </button>
+                    <button id="model-unload-btn" class="system-prompt-button secondary" onclick="unloadModel()" style="width: 100%; margin-top: 10px; display: none;">
+                        ⏹️ Unload Model
+                    </button>
+                    <div id="model-load-status" class="system-prompt-status" style="margin-top: 10px;"></div>
+                </div>
             </div>
 
             <div id="system-prompt-section" class="modal-section system-prompt-section" style="display: none;">
@@ -1393,10 +1402,43 @@
             const infoPanel = document.getElementById('model-info');
             if (infoPanel) {
                 infoPanel.style.display = 'block';
-                document.getElementById('model-status').innerHTML = `<span class="status-indicator ${model.available ? 'status-online' : 'status-offline'}"></span> ${model.available ? 'Online' : 'Offline'}`;
+                
+                // Update status to show both loaded and available states
+                let statusText = '';
+                let statusClass = 'status-offline';
+                if (model.loaded) {
+                    statusText = 'Loaded & Ready';
+                    statusClass = 'status-online';
+                } else if (model.available) {
+                    statusText = 'Available (Not Loaded)';
+                    statusClass = 'status-offline';
+                } else {
+                    statusText = 'Offline';
+                    statusClass = 'status-offline';
+                }
+                
+                document.getElementById('model-status').innerHTML = `<span class="status-indicator ${statusClass}"></span> ${statusText}`;
                 document.getElementById('model-type').textContent = model.type;
                 document.getElementById('model-size').textContent = model.size;
                 document.getElementById('model-format').textContent = model.format;
+                
+                // Show/hide load controls based on whether model can be loaded
+                const loadSection = document.getElementById('model-load-section');
+                const loadBtn = document.getElementById('model-load-btn');
+                const unloadBtn = document.getElementById('model-unload-btn');
+                
+                if (model.can_load) {
+                    loadSection.style.display = 'block';
+                    if (model.loaded) {
+                        loadBtn.style.display = 'none';
+                        unloadBtn.style.display = 'block';
+                    } else {
+                        loadBtn.style.display = 'block';
+                        unloadBtn.style.display = 'none';
+                    }
+                } else {
+                    loadSection.style.display = 'none';
+                }
             }
 
             populateSystemPrompt(model.system_prompt || '');
@@ -2506,6 +2548,89 @@
                     statusEl.textContent = '';
                     statusEl.className = 'system-prompt-status';
                 }, 4000);
+            }
+        }
+
+        function setModelLoadStatus(message, type) {
+            const statusEl = document.getElementById('model-load-status');
+            if (!statusEl) return;
+            
+            statusEl.textContent = message;
+            statusEl.className = 'system-prompt-status';
+            if (type) {
+                statusEl.classList.add(type);
+            }
+        }
+
+        async function loadModel() {
+            if (!currentModel) return;
+            
+            const loadBtn = document.getElementById('model-load-btn');
+            const unloadBtn = document.getElementById('model-unload-btn');
+            
+            try {
+                loadBtn.disabled = true;
+                setModelLoadStatus('Loading model...', 'info');
+                
+                const response = await fetch(`/api/models/${currentModel.id}/load`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to load model');
+                }
+                
+                const data = await response.json();
+                setModelLoadStatus(data.message, 'success');
+                
+                // Wait a few seconds for the model to fully load, then refresh
+                setTimeout(async () => {
+                    await loadModels();
+                    if (currentModel) {
+                        updateModelInfo(currentModel.id);
+                    }
+                }, 3000);
+                
+            } catch (error) {
+                console.error('Failed to load model:', error);
+                setModelLoadStatus(error.message, 'error');
+                loadBtn.disabled = false;
+            }
+        }
+
+        async function unloadModel() {
+            if (!currentModel) return;
+            
+            const loadBtn = document.getElementById('model-load-btn');
+            const unloadBtn = document.getElementById('model-unload-btn');
+            
+            try {
+                unloadBtn.disabled = true;
+                setModelLoadStatus('Unloading model...', 'info');
+                
+                const response = await fetch(`/api/models/${currentModel.id}/unload`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to unload model');
+                }
+                
+                const data = await response.json();
+                setModelLoadStatus(data.message, 'success');
+                
+                // Refresh models list
+                await loadModels();
+                if (currentModel) {
+                    updateModelInfo(currentModel.id);
+                }
+                
+            } catch (error) {
+                console.error('Failed to unload model:', error);
+                setModelLoadStatus(error.message, 'error');
+                unloadBtn.disabled = false;
             }
         }
     </script>
